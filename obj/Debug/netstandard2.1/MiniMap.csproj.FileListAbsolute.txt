@@ -1,0 +1,11 @@
+C:\Users\chris\Projects\MiniMap\bin\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.deps.json
+C:\Users\chris\Projects\MiniMap\bin\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.dll
+C:\Users\chris\Projects\MiniMap\bin\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.pdb
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.csproj.AssemblyReference.cache
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MyPluginInfo.cs
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.AssemblyInfoInputs.cache
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.AssemblyInfo.cs
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.csproj.CoreCompileInputs.cache
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.dll
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.pdb
