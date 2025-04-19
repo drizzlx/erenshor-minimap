@@ -12,27 +12,27 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
 <table>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#ff0000;border-radius:50%;"></span></td>
-    <td><strong>Enemy</strong></td>
+    <td><strong>Enemy [RED]</strong></td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#00ff00;border-radius:50%;"></span></td>
-    <td><strong>Party Member</strong></td>
+    <td><strong>Party Member [GREEN]</strong></td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#007bff;border-radius:50%;"></span></td>
-    <td><strong>Sim Player</strong></td>
+    <td><strong>Sim Player [BLUE]</strong></td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#ffff00;border-radius:50%;"></span></td>
-    <td><strong>Vendor / Bank</strong></td>
+    <td><strong>Vendor / Bank [YELLOW]</strong></td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#a020f0;border-radius:50%;"></span></td>
-    <td><strong>Mining Node</strong> – Resource node</td>
+    <td><strong>Mining Node [PURPLE]</strong> – Resource node</td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#444444;border-radius:50%;"></span></td>
-    <td><strong>Miscellaneous NPC</strong></td>
+    <td><strong>Miscellaneous NPC [GRAY]</strong></td>
   </tr>
 </table>
 
