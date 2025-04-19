@@ -1,0 +1,9 @@
+﻿{
+  "name": "MiniMap",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/cbradleydev/Erenshor-MiniMap",
+  "description": "Adds a Mini Map to the game that tracks vendors, mobs, mining nodes, etc",
+  "dependencies": [
+    "bbepis-BepInExPack-5.4.2"
+  ]
+}

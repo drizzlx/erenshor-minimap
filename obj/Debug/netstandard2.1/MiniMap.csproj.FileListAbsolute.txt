@@ -9,3 +9,4 @@ C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.AssemblyInfo.cs
 C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.csproj.CoreCompileInputs.cache
 C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.dll
 C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\Drizzlx.Erenshor.MiniMap.pdb
+C:\Users\chris\Projects\MiniMap\obj\Debug\netstandard2.1\MiniMap.sourcelink.json

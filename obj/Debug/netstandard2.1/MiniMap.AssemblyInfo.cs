@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Drizzlx.Erenshor.MiniMap")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+084482fd67f5815551e47ba6639a749aee5f7e00")]
 [assembly: System.Reflection.AssemblyProductAttribute("MiniMap")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Drizzlx.Erenshor.MiniMap")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

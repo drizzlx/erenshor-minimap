@@ -1,4 +1,5 @@
-﻿using BepInEx;
+﻿using System.Linq;
+using BepInEx;
 using BepInEx.Logging;
 using UnityEngine;
 
@@ -7,9 +8,6 @@ namespace MiniMap;
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
 public class MiniMapPlugin : BaseUnityPlugin
 {
-    internal static new ManualLogSource Logger;
-    private bool _initialized = false;
-    
     // GUI Styles
     private const int WindowId = 31722736; // Unique ID for GUI.Window
     
@@ -19,39 +17,33 @@ public class MiniMapPlugin : BaseUnityPlugin
     private RenderTexture _minimapRenderTexture;
     private Rect _minimapRect;
     private GUIStyle _windowStyle;
+    private GUIStyle _buttonStyle;
     private float _zoomLevel = 65f; // initial zoom
-        
-    private void Awake()
-    {
-        // Plugin startup logic
-        Logger = base.Logger;
-    }
+    
+    // NPC List
+    private string[] _bankNPCs = { "Prestigio Valusha", "Validus Greencent", "Comstock Retalio", "Summoned: Pocket Rift" };
+    private string[] _otherNPCs = { "Thella Steepleton", "Goldie Retalio" };
+
 
     private void OnDestroy()
     {
         Destroy(_minimapCamera.GetComponent<Camera>());
         
-        Debug.Log("ErenBot is destroyed!");
+        Debug.Log("MiniMap is destroyed!");
     }
 
-        private void OnGUI()
+    private void OnGUI()
     {
-        if (GameData.PlayerControl == null || GameData.PlayerInv.InvWindow.activeSelf)
+        if (GameData.PlayerControl == null || GameData.InCharSelect || GameData.PlayerInv.InvWindow.activeSelf)
             return;
 
-        if (!_initialized)
+        if (_minimapCamObj == null || _minimapCamera == null)
         {
-            // Setup minimap camera
-            _minimapCamObj = new GameObject("MinimapCamera");
-            _minimapCamera = _minimapCamObj.AddComponent<Camera>();
-            _minimapCamera.orthographic = true;
-            _minimapCamera.orthographicSize = 65f;
-            _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
-            _minimapCamera.backgroundColor = new Color(0, 0, 0, 0); // Transparent
-
+            CreateMinimapCamera();
+            
             // Style for panel window
             Texture2D bgTex = new Texture2D(1, 1);
-            bgTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.6f)); // Semi-transparent black
+            bgTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.25f)); // Semi-transparent black
             bgTex.Apply();
 
             _windowStyle = new GUIStyle(GUI.skin.window);
@@ -66,20 +58,39 @@ public class MiniMapPlugin : BaseUnityPlugin
             _windowStyle.onFocused.background = bgTex;
             
             var titleColor = Color.white;
-
-            _windowStyle.normal.textColor = titleColor;
-            _windowStyle.hover.textColor = titleColor;
-            _windowStyle.active.textColor = titleColor;
-            _windowStyle.focused.textColor = titleColor;
-            _windowStyle.onNormal.textColor = titleColor;
-            _windowStyle.onHover.textColor = titleColor;
-            _windowStyle.onActive.textColor = titleColor;
-            _windowStyle.onFocused.textColor = titleColor;
             
             _windowStyle.border = new RectOffset(10, 10, 10, 10);
             _windowStyle.padding = new RectOffset(4, 4, 4, 4);
+            
+            _buttonStyle = new GUIStyle(GUI.skin.button);
+            _buttonStyle.fontSize = 16;
+            _buttonStyle.alignment = TextAnchor.MiddleCenter;
 
-            _initialized = true;
+            // Create a fully transparent texture
+            Texture2D clearTexture = new Texture2D(1, 1);
+            clearTexture.SetPixel(0, 0, new Color(0, 0, 0, 0.3f));
+            clearTexture.Apply();
+
+            // Assign the transparent background to all states
+            _buttonStyle.normal.background = clearTexture;
+            _buttonStyle.hover.background = clearTexture;
+            _buttonStyle.active.background = clearTexture;
+            _buttonStyle.focused.background = clearTexture;
+            _buttonStyle.onNormal.background = clearTexture;
+            _buttonStyle.onHover.background = clearTexture;
+            _buttonStyle.onActive.background = clearTexture;
+            _buttonStyle.onFocused.background = clearTexture;
+
+            // Set your consistent font color
+            _buttonStyle.normal.textColor = titleColor;
+            _buttonStyle.hover.textColor = titleColor;
+            _buttonStyle.active.textColor = titleColor;
+            _buttonStyle.focused.textColor = titleColor;
+            _buttonStyle.onNormal.textColor = titleColor;
+            _buttonStyle.onHover.textColor = titleColor;
+            _buttonStyle.onActive.textColor = titleColor;
+            _buttonStyle.onFocused.textColor = titleColor;
+
         }
 
         // Update camera position
@@ -102,6 +113,7 @@ public class MiniMapPlugin : BaseUnityPlugin
 
             _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
             _minimapCamera.targetTexture = _minimapRenderTexture;
+            _minimapCamera.enabled = true;
         }
 
         float buttonSize = Screen.height * 0.17f;
@@ -111,6 +123,23 @@ public class MiniMapPlugin : BaseUnityPlugin
         // Draw window and inside it, the minimap
         _minimapRect = GUI.Window(WindowId, _minimapRect, DrawMiniMapPanel, "", _windowStyle);
     }
+    
+    private void CreateMinimapCamera()
+    {
+        _minimapCamObj = new GameObject("MinimapCamera");
+        _minimapCamera = _minimapCamObj.AddComponent<Camera>();
+    
+        _minimapCamera.orthographic = true;
+        _minimapCamera.orthographicSize = _zoomLevel;
+        _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
+        _minimapCamera.backgroundColor = new Color(0, 0, 0, 0);
+    
+        // Optional: create initial RenderTexture
+        int texSize = Mathf.RoundToInt(Screen.height * 0.1f);
+        _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
+        _minimapCamera.targetTexture = _minimapRenderTexture;
+    }
+
 
     private void DrawMiniMapPanel(int id)
     {
@@ -143,8 +172,9 @@ public class MiniMapPlugin : BaseUnityPlugin
                 Character character = collider.GetComponent<Character>();
 
                 if (character != null
-                    && character.Alive
-                    && character.isNPC)
+                    && (character.Alive
+                    && character.isNPC
+                    || character.MiningNode))
                 {
                     Vector3 worldPos = character.transform.position;
                     Vector3 viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
@@ -157,49 +187,63 @@ public class MiniMapPlugin : BaseUnityPlugin
 
                         if (character.MyNPC.SimPlayer)
                         {
-                            GUI.color = new Color(0f, 0.5f, 1f, 0.65f);
+                            if (character.MyNPC.InGroup)
+                                GUI.color = new Color(0f, 1f, 0.93f, 0.5f);
+                            else
+                            {
+                                GUI.color = new Color(0f, 0.5f, 1f, 0.5f);
+                            }
                         }
-                        else if (character.isVendor)
+                        else if (character.isVendor || _bankNPCs.Contains(character.MyNPC.NPCName) || _otherNPCs.Contains(character.MyNPC.NPCName))
                         {
-                            GUI.color = new Color(1f, 1f, 0f, 0.65f);
+                            GUI.color = new Color(1f, 1f, 0f, 0.75f);
                         }
                         else if (character.MiningNode)
                         {
-                            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.65f);
+                            GUI.color = new Color(0.65f, 0.3f, 1f, 0.95f);
                         }
                         else if (!character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
                         {
-                            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+                            GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.75f);
                         }
                         else
                         {
                             GUI.color = new Color(0f, 1f, 0f, 0.65f);
+                            
                         }
                         
-                        GUI.DrawTexture(new Rect(dotX - 2, dotY - 2, 8, 8), Texture2D.whiteTexture);
+                        var currentTarget = GameData.PlayerControl.CurrentTarget;
+                        if (currentTarget != null && currentTarget == character)
+                            GUI.color = new Color(1f, 0f, 0f, 0.75f);
+                        
+                        if (!character.MiningNode || (character.MiningNode && character.enabled))
+                            GUI.DrawTexture(new Rect(dotX - 2, dotY - 2, 8, 8), Texture2D.whiteTexture);
 
                     }
                 }
             }
         }
         
-        GUILayout.BeginArea(new Rect(4, texSize + 8, texSize, 30)); // buttons below map
+        GUILayout.BeginArea(new Rect(4, texSize + 7, texSize, 30)); // buttons below map
         GUILayout.BeginHorizontal();
 
-        if (GUILayout.Button("+", GUILayout.Width(texSize / 2 - 2)))
+        GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.75f);
+
+        if (GUILayout.Button("+", _buttonStyle, GUILayout.Width(texSize / 2 - 2)))
         {
             _zoomLevel = Mathf.Max(50f, _zoomLevel - 5f); // Zoom in
+            // Update zoom level
+            _minimapCamera.orthographicSize = _zoomLevel;
         }
 
-        if (GUILayout.Button("-", GUILayout.Width(texSize / 2 - 2)))
+        if (GUILayout.Button("-", _buttonStyle, GUILayout.Width(texSize / 2 - 2)))
         {
             _zoomLevel = Mathf.Min(80f, _zoomLevel + 5f); // Zoom out
+            // Update zoom level
+            _minimapCamera.orthographicSize = _zoomLevel;
         }
 
         GUILayout.EndHorizontal();
         GUILayout.EndArea();
-
-        // Update zoom level
-        _minimapCamera.orthographicSize = _zoomLevel;
     }
 }
