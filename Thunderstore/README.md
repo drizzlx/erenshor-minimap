@@ -28,7 +28,7 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#a020f0;border-radius:50%;"></span></td>
-    <td><strong>Mining Node [PURPLE]</strong> – Resource node</td>
+    <td><strong>Mining Node [PURPLE]</strong></td>
   </tr>
   <tr>
     <td><span style="display:inline-block;width:12px;height:12px;background-color:#444444;border-radius:50%;"></span></td>
@@ -38,6 +38,8 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
 
 
 ## Change Log
+1.1.1
+- Fix arrow image not showing when installed by mod manager.
 
 1.1.0
 - Displays zone name and X,Y coordinates.

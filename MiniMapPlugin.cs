@@ -30,24 +30,37 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private void Awake()
     {
-        string assetPath = Path.Combine(Paths.PluginPath, "Drizzlx-Erenshor-MiniMap", "Assets", "arrow.png");
+        string assetPath = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap", "arrow.png");
+        string legacyAssetPath = Path.Combine(Paths.PluginPath, "Drizzlx-Erenshor-MiniMap", "Assets", "arrow.png");
 
         if (File.Exists(assetPath))
         {
-            byte[] data = File.ReadAllBytes(assetPath);
-            _arrowTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-            if (!_arrowTexture.LoadImage(data))
-            {
+            if (!LoadImageTextures(assetPath))
                 Logger.LogError("Failed to load arrow texture from " + assetPath);
-            }
         }
         else
         {
-            Logger.LogError("Arrow texture not found at " + assetPath);
+            if (File.Exists(legacyAssetPath))
+            {
+                if (!LoadImageTextures(assetPath))
+                    Logger.LogError("Failed to load arrow texture from " + legacyAssetPath);
+            }
+            else
+            {
+                Logger.LogError("Arrow texture not found at " + assetPath);
+                Logger.LogError("Arrow texture not found at legacy fallback " + legacyAssetPath);
+            }
         }
     }
 
+    private bool LoadImageTextures(string assetPath)
+    {
+        byte[] data = File.ReadAllBytes(assetPath);
+        
+        _arrowTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
 
+        return _arrowTexture.LoadImage(data);
+    }
 
     private void OnDestroy()
     {

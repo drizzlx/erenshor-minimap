@@ -38,6 +38,8 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
 
 
 ## Change Log
+1.1.1
+- Fix arrow image not showing when installed by mod manager.
 
 1.1.0
 - Displays zone name and X,Y coordinates.
