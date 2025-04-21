@@ -38,6 +38,11 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
 
 
 ## Change Log
+1.2.0
+- Change to a more visible player arrow image.
+- Fixed map orientation bug, North should always be upwards.
+- Improvements with UI and transparency.
+
 1.1.1
 - Fix arrow image not showing when installed by mod manager.
 

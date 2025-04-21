@@ -1,7 +1,7 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Linq;
 using BepInEx;
-using BepInEx.Logging;
 using UnityEngine;
 
 namespace MiniMap;
@@ -20,37 +20,107 @@ public class MiniMapPlugin : BaseUnityPlugin
     private GUIStyle _windowStyle;
     private GUIStyle _buttonStyle;
     private float _zoomLevel = 65f; // initial zoom
+    private string _currentSceneName;
     
     // NPC List
-    private string[] _bankNPCs = { "Prestigio Valusha", "Validus Greencent", "Comstock Retalio", "Summoned: Pocket Rift" };
-    private string[] _otherNPCs = { "Thella Steepleton", "Goldie Retalio" };
+    private readonly string[] _bankNpcs = { "Prestigio Valusha", "Validus Greencent", "Comstock Retalio", "Summoned: Pocket Rift" };
+    private readonly string[] _otherNpcs = { "Thella Steepleton", "Goldie Retalio" };
     
     // Player Arrow Indicator
     private Texture2D _arrowTexture;
+    
+    // Map textures
+    private Texture2D _mapZoomInTexture;
+    private Texture2D _mapZoomOutTexture;
+    private GUIStyle _zoomInButtonStyle;
+    private GUIStyle _zoomOutButtonStyle;
 
     private void Awake()
     {
-        string assetPath = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap", "arrow.png");
-        string legacyAssetPath = Path.Combine(Paths.PluginPath, "Drizzlx-Erenshor-MiniMap", "Assets", "arrow.png");
+        LoadArrowTexture();
+        LoadZoomTexture();
+    }
+    
+    private void OnDestroy()
+    {
+        if (_minimapCamera.GetComponent<Camera>())
+        {
+            Destroy(_minimapCamera.GetComponent<Camera>());
+        }
+        
+        Debug.Log("MiniMap is destroyed!");
+    }
+    
+    private void LoadZoomTexture()
+    {
+        string assetDir = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
+
+        if (!Directory.Exists(assetDir))
+        {
+            return;
+        }
+
+        // Zoom In
+        var assetPath = Path.Combine(assetDir, "zoom_in.png");
+
+        if (!File.Exists(assetPath))
+        {
+            return;
+        }
+        
+        byte[] data = File.ReadAllBytes(assetPath);
+        
+        _mapZoomInTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        
+        _mapZoomInTexture.LoadImage(data);
+        
+        // Zoom Out
+        assetPath = Path.Combine(assetDir, "zoom_out.png");
+
+        if (!File.Exists(assetPath))
+        {
+            return;
+        }
+        
+        data = File.ReadAllBytes(assetPath);
+        
+        _mapZoomOutTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        
+        _mapZoomOutTexture.LoadImage(data);
+    }
+
+    private void LoadArrowTexture()
+    {
+        string assetDir = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
+        string legacyAssetDir = Path.Combine(Paths.PluginPath, "Drizzlx-Erenshor-MiniMap", "Assets");
+        string dir;
+
+        if (Directory.Exists(assetDir))
+        {
+            dir = assetDir;
+        }
+        else if (Directory.Exists(legacyAssetDir))
+        {
+            dir = legacyAssetDir;
+        }
+        else
+        {
+            Logger.LogError("Missing directory and arrow texture " + Path.Combine(assetDir, "arrow.png"));
+            
+            return;
+        }
+
+        var assetPath = Path.Combine(dir, "arrow.png");
 
         if (File.Exists(assetPath))
         {
             if (!LoadImageTextures(assetPath))
                 Logger.LogError("Failed to load arrow texture from " + assetPath);
+
+            return;
         }
-        else
-        {
-            if (File.Exists(legacyAssetPath))
-            {
-                if (!LoadImageTextures(assetPath))
-                    Logger.LogError("Failed to load arrow texture from " + legacyAssetPath);
-            }
-            else
-            {
-                Logger.LogError("Arrow texture not found at " + assetPath);
-                Logger.LogError("Arrow texture not found at legacy fallback " + legacyAssetPath);
-            }
-        }
+        
+        Logger.LogError("Arrow texture not found " + assetPath);
     }
 
     private bool LoadImageTextures(string assetPath)
@@ -60,13 +130,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         _arrowTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
 
         return _arrowTexture.LoadImage(data);
-    }
-
-    private void OnDestroy()
-    {
-        Destroy(_minimapCamera.GetComponent<Camera>());
-        
-        Debug.Log("MiniMap is destroyed!");
     }
 
     private void OnGUI()
@@ -79,10 +142,32 @@ public class MiniMapPlugin : BaseUnityPlugin
             CreateMinimapCamera();
             InitializeGUIStyles();
         }
+        
+        var sceneName = GameData.SceneName;
+        
+        // Update true north only once per scene load
+        if (string.IsNullOrEmpty(sceneName))
+        {
+            _currentSceneName = "Unknown Location";
+        }
+        else if (!string.Equals(sceneName, _currentSceneName, StringComparison.Ordinal))
+        {
+            _currentSceneName = sceneName;
+        }
 
-        // Update camera position
+        if (GameData.CurrentZoneAnnounce == null || GameData.CurrentZoneAnnounce.transform == null)
+        {
+            return;
+        }
+        
+        Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
+        
+        float zoneYaw = zoneRotation.eulerAngles.y;
+        
         _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
-        _minimapCamera.transform.rotation = Quaternion.Euler(90f, 270, 0f);
+        
+        // True north map orientation
+        _minimapCamera.transform.rotation = Quaternion.Euler(90f, (zoneYaw + 180f) % 360f, 0);
 
         // Calculate size and position of the window
         float size = Screen.height * 0.1f; // Square minimap
@@ -104,7 +189,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         }
 
         float buttonSize = Screen.height * 0.18f;
-        float panelHeight = buttonSize + 25f; // extra height for buttons
+        float panelHeight = buttonSize + 30f; // extra height for buttons
+        
         _minimapRect = new Rect(Screen.width - buttonSize - 20f, Screen.height * 0.075f, buttonSize, panelHeight);
 
         // Draw window and inside it, the minimap
@@ -122,7 +208,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         _minimapCamera.backgroundColor = new Color(0, 0, 0, 0);
     
         // Optional: create initial RenderTexture
-        int texSize = Mathf.RoundToInt(Screen.height * 0.1f);
+        int texSize = Mathf.RoundToInt(Screen.height * 0f);
         _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
         _minimapCamera.targetTexture = _minimapRenderTexture;
     }
@@ -131,9 +217,9 @@ public class MiniMapPlugin : BaseUnityPlugin
     {
         // Style for panel window
         Texture2D bgTex = new Texture2D(1, 1);
-        bgTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.25f)); // Semi-transparent black
+        bgTex.SetPixel(0, 0, new Color(0f, 0f, 0.0f, 0.25f));
         bgTex.Apply();
-
+        
         _windowStyle = new GUIStyle(GUI.skin.window);
         
         _windowStyle.normal.background = bgTex;
@@ -178,41 +264,32 @@ public class MiniMapPlugin : BaseUnityPlugin
         _buttonStyle.onHover.textColor = titleColor;
         _buttonStyle.onActive.textColor = titleColor;
         _buttonStyle.onFocused.textColor = titleColor;
+        
+        _zoomInButtonStyle = new GUIStyle(GUI.skin.button);
+        _zoomInButtonStyle.normal.background = _mapZoomInTexture;
+        _zoomInButtonStyle.hover.background = _mapZoomInTexture; 
+        _zoomInButtonStyle.active.background = _mapZoomInTexture;
+        _zoomInButtonStyle.border = new RectOffset(0, 0, 0, 0); // Optional, avoids weird stretching
+        _zoomInButtonStyle.padding = new RectOffset(0, 0, 0, 0);
+        
+        _zoomOutButtonStyle = new GUIStyle(GUI.skin.button);
+        _zoomOutButtonStyle.normal.background = _mapZoomOutTexture;
+        _zoomOutButtonStyle.hover.background = _mapZoomOutTexture; 
+        _zoomOutButtonStyle.active.background = _mapZoomOutTexture;
+        _zoomOutButtonStyle.border = new RectOffset(0, 0, 0, 0); // Optional, avoids weird stretching
+        _zoomOutButtonStyle.padding = new RectOffset(0, 0, 0, 0);
     }
 
     private void DrawMiniMapPanel(int id)
     {
-        float texSize = _minimapRect.width - 8;
+        float texSize = _minimapRect.width;
         
-        GUI.DrawTexture(new Rect(4, 4, texSize, texSize), _minimapRenderTexture);
+        // Map Transparency
+        GUI.color = new Color(1f, 1f, 1f, 0.9f);
         
-        // Draw player on map
+        GUI.DrawTexture(new Rect(0, 0, texSize, texSize), _minimapRenderTexture);
+        
         Vector3 playerPos = GameData.PlayerControl.transform.position;
-        Vector3 playerViewportPos = _minimapCamera.WorldToViewportPoint(playerPos);
-        
-        float playerDotX = 4 + playerViewportPos.x * texSize;
-        float playerDotY = 4 + (1f - playerViewportPos.y) * texSize;
-        
-        // GUI.color = new Color(1f, 1f, 1f, 0.75f);
-        // GUI.DrawTexture(new Rect(playerDotX - 4, playerDotY - 4, 8, 8), Texture2D.whiteTexture);
-        
-        Vector3 forward = GameData.PlayerControl.transform.forward;
-        float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - 270;
-
-        Matrix4x4 oldMatrix = GUI.matrix;
-        GUIUtility.RotateAroundPivot(angle, new Vector2(playerDotX, playerDotY));
-
-        if (_arrowTexture != null)
-        {
-            GUI.DrawTexture(new Rect(playerDotX - 10, playerDotY - 10, 24, 24), _arrowTexture);
-        }
-        else
-        {
-            GUI.color = new Color(1f, 1f, 1f, 0.75f);
-            GUI.DrawTexture(new Rect(playerDotX - 4, playerDotY - 4, 8, 8), Texture2D.whiteTexture);
-        }
-
-        GUI.matrix = oldMatrix;
         
         // Draw mobs on map
         if (_minimapCamera != null && GameData.PlayerControl != null)
@@ -235,8 +312,13 @@ public class MiniMapPlugin : BaseUnityPlugin
                     // Check if it's actually in view
                     if (viewportPos.z > 0f && viewportPos.x >= 0f && viewportPos.x <= 1f && viewportPos.y >= 0f && viewportPos.y <= 1f)
                     {
-                        float dotX = 4 + viewportPos.x * texSize;
-                        float dotY = 4 + (1f - viewportPos.y) * texSize;
+                        float dotX = viewportPos.x * texSize;
+                        float dotY = (1f - viewportPos.y) * texSize;
+
+                        float zoneLabelTopY = texSize - 25; // Y cutoff based on label
+
+                        if (dotY >= zoneLabelTopY)
+                            continue; // skip NPCs drawn under the zone label
 
                         if (character.MyNPC.SimPlayer)
                         {
@@ -244,10 +326,10 @@ public class MiniMapPlugin : BaseUnityPlugin
                                 GUI.color = new Color(0f, 1f, 0f, 0.75f);
                             else
                             {
-                                GUI.color = new Color(0f, 0.5f, 1f, 0.75f);
+                                GUI.color = new Color(0f, 0.5f, 1f, 0.85f);
                             }
                         }
-                        else if (character.isVendor || _bankNPCs.Contains(character.MyNPC.NPCName) || _otherNPCs.Contains(character.MyNPC.NPCName))
+                        else if (character.isVendor || _bankNpcs.Contains(character.MyNPC.NPCName) || _otherNpcs.Contains(character.MyNPC.NPCName))
                         {
                             GUI.color = new Color(1f, 1f, 0f, 0.75f);
                         }
@@ -271,11 +353,11 @@ public class MiniMapPlugin : BaseUnityPlugin
                             
                             if (currentTarget != null && currentTarget == character)
                             {
-                                GUI.DrawTexture(new Rect(dotX - 2, dotY - 2, 8, 8), Texture2D.whiteTexture);
+                                GUI.DrawTexture(new Rect(dotX - 2, dotY - 2, 9, 9), Texture2D.whiteTexture);
                             }
                             else
                             {
-                                Rect borderRect = new Rect(dotX - 2, dotY - 2, 8, 8);
+                                Rect borderRect = new Rect(dotX - 2, dotY - 2, 9, 9);
                                 DrawBorderRect(borderRect, 1f, GUI.color);
                             }
                         }
@@ -284,40 +366,88 @@ public class MiniMapPlugin : BaseUnityPlugin
             }
         }
         
+        // Draw player arrow on map
+        Vector3 playerViewportPos = _minimapCamera.WorldToViewportPoint(playerPos);
+        
+        float playerDotX = 4 + playerViewportPos.x * texSize;
+        float playerDotY = 4 + (1f - playerViewportPos.y) * texSize;
+        
+        Vector3 forward = GameData.PlayerControl.transform.forward;
+        
+        Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
+        
+        float zoneYaw = zoneRotation.eulerAngles.y;
+        
+        float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - ((zoneYaw + 180f) % 360f);
+        
+        Matrix4x4 oldMatrix = GUI.matrix;
+        GUIUtility.RotateAroundPivot(angle, new Vector2(playerDotX, playerDotY));
+
+        if (_arrowTexture != null)
+        {
+            float width = 24f;
+            float height = 24f;
+            
+            GUI.color = new Color(1f, 1f, 1f, 0.70f);
+            
+            GUI.DrawTexture(new Rect(
+                playerDotX - width / 2f, 
+                playerDotY - height / 2f, width, height), _arrowTexture);
+        }
+        else
+        {
+            GUI.color = new Color(1f, 1f, 1f, 0.75f);
+            GUI.DrawTexture(new Rect(playerDotX - 4, playerDotY - 4, 8, 8), Texture2D.whiteTexture);
+        }
+
+        GUI.matrix = oldMatrix;
+        
         if (GameData.SceneName != null)
         {
             DrawZoneName(texSize);
         }
         
         // Zoom in and out buttons below map
-        GUILayout.BeginArea(new Rect(4, texSize + 7, texSize, 30));
+        GUILayout.BeginArea(new Rect(0, texSize, texSize, 30));
+        GUILayout.BeginVertical();
+        GUILayout.Space(2);
         GUILayout.BeginHorizontal();
+        
+        GUILayout.FlexibleSpace();
 
-        GUI.color = new Color(0.5f, 0.5f, 0.5f, 0.75f);
-
-        if (GUILayout.Button("+", _buttonStyle, GUILayout.Width(texSize / 2 - 2)))
-        {
-            _zoomLevel = Mathf.Max(50f, _zoomLevel - 5f); // Zoom in
-            // Update zoom level
-            _minimapCamera.orthographicSize = _zoomLevel;
-        }
-
-        if (GUILayout.Button("-", _buttonStyle, GUILayout.Width(texSize / 2 - 2)))
+        GUI.color = new Color(1f, 1f, 1f, 0.4f);
+        
+        if (GUILayout.Button(GUIContent.none, _zoomOutButtonStyle, GUILayout.Width(texSize / 10), GUILayout.Height(texSize / 10)))
         {
             _zoomLevel = Mathf.Min(80f, _zoomLevel + 5f); // Zoom out
             // Update zoom level
             _minimapCamera.orthographicSize = _zoomLevel;
         }
 
+        if (GUILayout.Button(GUIContent.none, _zoomInButtonStyle, GUILayout.Width(texSize / 10), GUILayout.Height(texSize / 10)))
+        {
+            _zoomLevel = Mathf.Max(50f, _zoomLevel - 5f); // Zoom in
+            // Update zoom level
+            _minimapCamera.orthographicSize = _zoomLevel;
+        }
+        
+        GUILayout.Space(2);
+
         GUILayout.EndHorizontal();
+        GUILayout.EndVertical();
         GUILayout.EndArea();
     }
 
     private void DrawZoneName(float texSize)
     {
-        var sceneName = GameData.SceneName;
         var playerPos = GameData.PlayerControl.transform.position;
-        var overlayText = $"{sceneName}  ({Mathf.FloorToInt(playerPos.x)}, {Mathf.FloorToInt(playerPos.z)})";
+        
+        var overlayText = $"{_currentSceneName}";
+
+        if (!string.IsNullOrEmpty(Mathf.FloorToInt(playerPos.x).ToString()) && !string.IsNullOrEmpty(Mathf.FloorToInt(playerPos.z).ToString()))
+        {
+            overlayText += $" ({Mathf.FloorToInt(playerPos.x)}, {Mathf.FloorToInt(playerPos.z)})";
+        }
             
         GUIStyle sceneLabelStyle = new GUIStyle(GUI.skin.label)
         {
