@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BepInEx;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace MiniMap;
 
@@ -36,6 +38,12 @@ public class MiniMapPlugin : BaseUnityPlugin
     private GUIStyle _zoomOutButtonStyle;
     
     private string _assetDirectory;
+    
+    // Draggable UI
+    private GameObject _minimapUIRoot;
+    private RectTransform _playerArrowRect;
+    private RectTransform _npcMarkerContainer;
+    private readonly List<GameObject> _npcMarkers = new List<GameObject>();
 
     private void Awake()
     {
@@ -58,12 +66,43 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     private void OnDestroy()
     {
-        if (_minimapCamera.GetComponent<Camera>())
+        try
         {
-            Destroy(_minimapCamera.GetComponent<Camera>());
+            // Destroy minimap camera
+            if (_minimapCamObj != null)
+            {
+                Destroy(_minimapCamObj);
+                _minimapCamObj = null;
+            }
+
+            // Release and destroy RenderTexture
+            if (_minimapRenderTexture != null)
+            {
+                _minimapRenderTexture.Release();
+                Destroy(_minimapRenderTexture);
+                _minimapRenderTexture = null;
+            }
+
+            // Destroy minimap UI root
+            if (_minimapUIRoot != null)
+            {
+                Destroy(_minimapUIRoot);
+                _minimapUIRoot = null;
+            }
+
+            // Destroy all NPC markers
+            foreach (var marker in _npcMarkers)
+            {
+                if (marker != null)
+                    Destroy(marker);
+            }
+            
+            _npcMarkers.Clear();
         }
-        
-        Debug.Log("MiniMap is destroyed!");
+        catch (Exception ex)
+        {
+            Logger.LogError($"Error during minimap cleanup: {ex}");
+        }
     }
     
     private void LoadZoomTexture()
@@ -135,87 +174,372 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         return _arrowTexture.LoadImage(data);
     }
-
-    private void OnGUI()
+    
+    private void Update()
     {
         if (GameData.PlayerControl == null || GameData.InCharSelect || GameData.PlayerInv.InvWindow.activeSelf)
             return;
 
-        if (_minimapCamObj == null || _minimapCamera == null)
+        if (_minimapCamera == null)
         {
             CreateMinimapCamera();
-            InitializeGUIStyles();
-        }
-        
-        var sceneName = GameData.SceneName;
-        
-        // Update true north only once per scene load
-        if (string.IsNullOrEmpty(sceneName))
-        {
-            _currentSceneName = "Unknown Location";
-        }
-        else if (!string.Equals(sceneName, _currentSceneName, StringComparison.Ordinal))
-        {
-            _currentSceneName = sceneName;
+            
+            if (_minimapUIRoot == null) 
+                CreateMinimapUI();
         }
 
-        if (GameData.CurrentZoneAnnounce == null || GameData.CurrentZoneAnnounce.transform == null)
-        {
-            return;
-        }
-        
-        Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
-        
-        float zoneYaw = zoneRotation.eulerAngles.y;
-        
-        _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
-        
-        // True north map orientation
-        _minimapCamera.transform.rotation = Quaternion.Euler(90f, (zoneYaw + 180f) % 360f, 0);
-
-        // Calculate size and position of the window
-        float size = Screen.height * 0.1f; // Square minimap
-        float x = Screen.width - size - 20f; // 20px padding from right
-        float y = Screen.height * 0.25f;     // 25% top
-
-        _minimapRect = new Rect(x, y, size, size);
-
-        // Only recreate texture if needed
-        int texSize = Mathf.RoundToInt(size);
-        if (_minimapRenderTexture == null || _minimapRenderTexture.width != texSize)
-        {
-            if (_minimapRenderTexture != null)
-                _minimapRenderTexture.Release();
-
-            _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
-            _minimapCamera.targetTexture = _minimapRenderTexture;
-            _minimapCamera.enabled = true;
-        }
-
-        float buttonSize = Screen.height * 0.18f;
-        float panelHeight = buttonSize + 30f; // extra height for buttons
-        
-        _minimapRect = new Rect(Screen.width - buttonSize - 20f, Screen.height * 0.075f, buttonSize, panelHeight);
-
-        // Draw window and inside it, the minimap
-        _minimapRect = GUI.Window(WindowId, _minimapRect, DrawMiniMapPanel, "", _windowStyle);
+        UpdateMinimapCamera();
+        UpdatePlayerArrowOnMinimap();
+        UpdateNpcMarkers();
     }
     
     private void CreateMinimapCamera()
     {
         _minimapCamObj = new GameObject("MinimapCamera");
         _minimapCamera = _minimapCamObj.AddComponent<Camera>();
-    
+
         _minimapCamera.orthographic = true;
         _minimapCamera.orthographicSize = _zoomLevel;
         _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
         _minimapCamera.backgroundColor = new Color(0, 0, 0, 0);
-    
-        // Optional: create initial RenderTexture
-        int texSize = Mathf.RoundToInt(Screen.height * 0f);
+
+        int texSize = Mathf.RoundToInt(Screen.height * 0.1f);
+        if (texSize <= 0) texSize = 256;
+
         _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
         _minimapCamera.targetTexture = _minimapRenderTexture;
     }
+    
+    private void UpdateMinimapCamera()
+    {
+        var zoneAnnounce = GameData.CurrentZoneAnnounce;
+        if (zoneAnnounce == null || zoneAnnounce.transform == null) return;
+
+        float yaw = zoneAnnounce.transform.rotation.eulerAngles.y;
+
+        _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
+        _minimapCamera.transform.rotation = Quaternion.Euler(90f, (yaw + 180f) % 360f, 0f);
+    }
+    
+    private void CreateMinimapUI()
+    {
+        // === Canvas ===
+        var canvasGo = new GameObject("MinimapCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        var canvas = canvasGo.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+        // === Minimap Panel ===
+        var panelGo = new GameObject("MinimapPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+        panelGo.transform.SetParent(canvasGo.transform, false);
+
+        var rect = panelGo.GetComponent<RectTransform>();
+        rect.sizeDelta = new Vector2(250, 250); // Set size
+        rect.anchoredPosition = new Vector2(-150, 150); // Position from screen center
+
+        var rawImage = panelGo.GetComponent<RawImage>();
+        rawImage.texture = _minimapRenderTexture;
+        rawImage.color = new Color(1f, 1f, 1f, 0.9f); // Optional transparency
+
+        _minimapUIRoot = panelGo;
+        
+        // === Drag Handle (small blue dot) ===
+        var dragHandle = new GameObject("MinimapDragHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(DragUI));
+        dragHandle.transform.SetParent(panelGo.transform, false);
+
+        var handleRect = dragHandle.GetComponent<RectTransform>();
+        handleRect.sizeDelta = new Vector2(16, 16);
+        handleRect.anchorMin = new Vector2(1, 1);
+        handleRect.anchorMax = new Vector2(1, 1);
+        handleRect.pivot = new Vector2(1, 1);
+        handleRect.anchoredPosition = new Vector2(-4, -4);
+
+        var handleImage = dragHandle.GetComponent<Image>();
+        handleImage.color = new Color(0.3f, 0.5f, 1f, 0.9f);
+
+        var handleDrag = dragHandle.GetComponent<DragUI>();
+        handleDrag.Parent = panelGo.transform; // ✅ this prevents the null error
+        handleDrag.isInv = true;
+
+        // === Player Arrow ===
+        var arrowGo = new GameObject("PlayerArrow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        arrowGo.transform.SetParent(panelGo.transform, false);
+
+        _playerArrowRect = arrowGo.GetComponent<RectTransform>();
+        _playerArrowRect.sizeDelta = new Vector2(24, 24); // Customize as needed
+
+        var arrowImage = arrowGo.GetComponent<Image>();
+        arrowImage.sprite = Sprite.Create(
+            _arrowTexture,
+            new Rect(0, 0, _arrowTexture.width, _arrowTexture.height),
+            new Vector2(0.5f, 0.5f) // Pivot in center
+        );
+        
+        arrowImage.color = new Color(1f, 1f, 1f, 0.7f); // Slight fade
+        
+        // === Marker Container ===
+        var markerContainer = new GameObject("MarkerContainer", typeof(RectTransform));
+        markerContainer.transform.SetParent(panelGo.transform, false);
+
+        var containerRect = markerContainer.GetComponent<RectTransform>();
+        containerRect.anchorMin = new Vector2(0.5f, 0.5f);
+        containerRect.anchorMax = new Vector2(0.5f, 0.5f);
+        containerRect.pivot = new Vector2(0.5f, 0.5f);
+        containerRect.anchoredPosition = Vector2.zero;
+        containerRect.sizeDelta = Vector2.zero;
+
+        _npcMarkerContainer = containerRect;
+    }
+
+    private void UpdatePlayerArrowOnMinimap()
+    {
+        if (_playerArrowRect == null) return;
+
+        Vector3 worldPos = GameData.PlayerControl.transform.position;
+        Vector3 viewport = _minimapCamera.WorldToViewportPoint(worldPos);
+
+        float panelSize = _minimapUIRoot.GetComponent<RectTransform>().rect.width;
+        float x = (viewport.x - 0.5f) * panelSize;
+        float y = (0.5f - viewport.y) * panelSize;
+
+        _playerArrowRect.anchoredPosition = new Vector2(x, y);
+
+        Vector3 forward = GameData.PlayerControl.transform.forward;
+        float yaw = GameData.CurrentZoneAnnounce.transform.rotation.eulerAngles.y;
+        float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - ((yaw + 180f) % 360f);
+
+        _playerArrowRect.localRotation = Quaternion.Euler(0, 0, -angle);
+    }
+    
+    private void UpdateNpcMarkers()
+    {
+        if (_npcMarkerContainer == null || _minimapCamera == null || GameData.PlayerControl == null)
+            return;
+
+        // Hide all existing markers (reuse from pool)
+        foreach (var marker in _npcMarkers)
+            marker.SetActive(false);
+
+        Vector3 playerPos = GameData.PlayerControl.transform.position;
+        Collider[] hits = Physics.OverlapSphere(playerPos, _zoomLevel);
+
+        foreach (var collider in hits)
+        {
+            var character = collider.GetComponent<Character>();
+            
+            if (character == null || (!character.Alive && !character.MiningNode)) 
+                continue;
+            
+            if (!character.isNPC && !character.MiningNode) 
+                continue;
+
+            Vector3 worldPos = character.transform.position;
+            Vector3 viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
+
+            if (Input.GetKeyDown(InputManager.Forward))
+            {
+                if (character.name.Contains("Samuel"))
+                {
+                    Logger.LogInfo($"[{character.name}] World: {worldPos}, Viewport: {viewportPos}");
+                
+                    Logger.LogInfo($"[Player] World: {GameData.PlayerControl.transform.position}");
+                }
+            }
+
+            if (viewportPos.z <= 0f || viewportPos.x < 0f || viewportPos.x > 1f || viewportPos.y < 0f || viewportPos.y > 1f)
+                continue;
+
+            Color color;
+
+            if (character.MyNPC.SimPlayer)
+            {
+                color = character.MyNPC.InGroup ? new Color(0f, 1f, 0f, 0.75f) : new Color(0f, 0.5f, 1f, 0.85f);
+            }
+            else if (character.isVendor || _bankNpcs.Contains(character.MyNPC.NPCName) || _otherNpcs.Contains(character.MyNPC.NPCName))
+            {
+                color = new Color(1f, 1f, 0f, 0.75f);
+            }
+            else if (character.MiningNode)
+            {
+                color = new Color(0.65f, 0.3f, 1f, 0.95f);
+            }
+            else if (!character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
+            {
+                color = new Color(0.6f, 0.6f, 0.6f, 0.75f);
+            }
+            else
+            {
+                color = new Color(1f, 0f, 0f, 0.75f); // Aggressive enemy
+            }
+            
+            if (!character.MiningNode || (character.MiningNode && character.enabled))
+            {
+                bool isTarget = GameData.PlayerControl.CurrentTarget != null &&
+                                GameData.PlayerControl.CurrentTarget == character;
+
+                GameObject marker = null;
+
+                // Try to reuse an existing marker of the correct type
+                if (isTarget)
+                {
+                    marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == "NPCMarkerSolid");
+                }
+                else
+                {
+                    marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == "NPCMarker");
+                }
+
+                // Create if needed
+                if (marker == null)
+                {
+                    marker = isTarget ? CreateSolidMarker(color) : CreateMarker(color);
+                    marker.transform.SetParent(_npcMarkerContainer, false);
+                    _npcMarkers.Add(marker);
+                }
+                else
+                {
+                    foreach (var img in marker.GetComponentsInChildren<Image>())
+                    {
+                        img.color = color;
+                    }
+                    marker.SetActive(true);
+                }
+
+                RectTransform markerRect = marker.GetComponent<RectTransform>();
+                RectTransform panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+
+                float panelWidth = panelRect.rect.width;
+                float panelHeight = panelRect.rect.height;
+
+                float dotX = (viewportPos.x - 0.5f) * panelWidth;
+                float dotY = (viewportPos.y - 0.5f) * panelHeight;
+
+                markerRect.anchoredPosition = new Vector2(dotX, dotY);
+            }
+        }
+    }
+    
+    private GameObject CreateSolidMarker(Color color)
+    {
+        var marker = new GameObject("NPCMarkerSolid", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+
+        var markerRect = marker.GetComponent<RectTransform>();
+        markerRect.sizeDelta = new Vector2(8, 8);
+        markerRect.anchorMin = new Vector2(0, 0);
+        markerRect.anchorMax = new Vector2(0, 0);
+        markerRect.pivot = new Vector2(0.5f, 0.5f);
+
+        var image = marker.GetComponent<Image>();
+        var tex = Texture2D.whiteTexture;
+        image.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+        image.color = color;
+
+        return marker;
+    }
+    
+    private GameObject CreateMarker(Color borderColor)
+    {
+        var marker = new GameObject("NPCMarker", typeof(RectTransform));
+        var markerRect = marker.GetComponent<RectTransform>();
+        markerRect.sizeDelta = new Vector2(8, 8);
+        markerRect.anchorMin = new Vector2(0, 0);
+        markerRect.anchorMax = new Vector2(0, 0);
+        markerRect.pivot = new Vector2(0.5f, 0.5f);
+
+        // Thickness in pixels
+        float thickness = 1f;
+
+        // Helper to create a line
+        GameObject CreateLine(string name, Vector2 size, Vector2 position)
+        {
+            var line = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+            line.transform.SetParent(marker.transform, false);
+
+            var rt = line.GetComponent<RectTransform>();
+            rt.sizeDelta = size;
+            rt.anchoredPosition = position;
+
+            var img = line.GetComponent<Image>();
+            img.color = borderColor;
+
+            return line;
+        }
+
+        float halfSize = markerRect.sizeDelta.x / 2f;
+
+        // Create 4 sides
+        CreateLine("Top",     new Vector2(8, thickness), new Vector2(0,  halfSize - thickness / 2f));
+        CreateLine("Bottom",  new Vector2(8, thickness), new Vector2(0, -halfSize + thickness / 2f));
+        CreateLine("Left",    new Vector2(thickness, 8), new Vector2(-halfSize + thickness / 2f, 0));
+        CreateLine("Right",   new Vector2(thickness, 8), new Vector2(halfSize - thickness / 2f, 0));
+
+        return marker;
+    }
+
+    // private void OnGUI()
+    // {
+    //     if (GameData.PlayerControl == null || GameData.InCharSelect || GameData.PlayerInv.InvWindow.activeSelf)
+    //         return;
+    //
+    //     if (_minimapCamObj == null || _minimapCamera == null)
+    //     {
+    //         CreateMinimapCamera();
+    //         CreateMinimapUI();
+    //         InitializeGUIStyles();
+    //     }
+    //     
+    //     var sceneName = GameData.SceneName;
+    //     
+    //     // Update true north only once per scene load
+    //     if (string.IsNullOrEmpty(sceneName))
+    //     {
+    //         _currentSceneName = "Unknown Location";
+    //     }
+    //     else if (!string.Equals(sceneName, _currentSceneName, StringComparison.Ordinal))
+    //     {
+    //         _currentSceneName = sceneName;
+    //     }
+    //
+    //     if (GameData.CurrentZoneAnnounce == null || GameData.CurrentZoneAnnounce.transform == null)
+    //     {
+    //         return;
+    //     }
+    //     
+    //     Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
+    //     
+    //     float zoneYaw = zoneRotation.eulerAngles.y;
+    //     
+    //     _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
+    //     
+    //     // True north map orientation
+    //     _minimapCamera.transform.rotation = Quaternion.Euler(90f, (zoneYaw + 180f) % 360f, 0);
+    //
+    //     // Calculate size and position of the window
+    //     float size = Screen.height * 0.1f; // Square minimap
+    //     float x = Screen.width - size - 20f; // 20px padding from right
+    //     float y = Screen.height * 0.25f;     // 25% top
+    //
+    //     _minimapRect = new Rect(x, y, size, size);
+    //
+    //     // Only recreate texture if needed
+    //     int texSize = Mathf.RoundToInt(size);
+    //     if (_minimapRenderTexture == null || _minimapRenderTexture.width != texSize)
+    //     {
+    //         if (_minimapRenderTexture != null)
+    //             _minimapRenderTexture.Release();
+    //
+    //         _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
+    //         _minimapCamera.targetTexture = _minimapRenderTexture;
+    //         _minimapCamera.enabled = true;
+    //     }
+    //
+    //     float buttonSize = Screen.height * 0.18f;
+    //     float panelHeight = buttonSize + 30f; // extra height for buttons
+    //     
+    //     _minimapRect = new Rect(Screen.width - buttonSize - 20f, Screen.height * 0.075f, buttonSize, panelHeight);
+    //
+    //     // Draw window and inside it, the minimap
+    //     _minimapRect = GUI.Window(WindowId, _minimapRect, DrawMiniMapPanel, "", _windowStyle);
+    // }
 
     private void InitializeGUIStyles()
     {
