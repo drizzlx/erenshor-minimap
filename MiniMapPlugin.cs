@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BepInEx;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -11,18 +13,11 @@ namespace MiniMap;
 [BepInPlugin(MyPluginInfo.PLUGIN_GUID, MyPluginInfo.PLUGIN_NAME, MyPluginInfo.PLUGIN_VERSION)]
 public class MiniMapPlugin : BaseUnityPlugin
 {
-    // GUI Styles
-    private const int WindowId = 31722736; // Unique ID for GUI.Window
-    
     // Mini-Map
     private GameObject _minimapCamObj;
     private Camera _minimapCamera;
     private RenderTexture _minimapRenderTexture;
-    private Rect _minimapRect;
-    private GUIStyle _windowStyle;
-    private GUIStyle _buttonStyle;
     private float _zoomLevel = 65f; // initial zoom
-    private string _currentSceneName;
     
     // NPC List
     private readonly string[] _bankNpcs = { "Prestigio Valusha", "Validus Greencent", "Comstock Retalio", "Summoned: Pocket Rift" };
@@ -43,7 +38,9 @@ public class MiniMapPlugin : BaseUnityPlugin
     private GameObject _minimapUIRoot;
     private RectTransform _playerArrowRect;
     private RectTransform _npcMarkerContainer;
-    private readonly List<GameObject> _npcMarkers = new List<GameObject>();
+    private readonly List<GameObject> _npcMarkers = new();
+    private TextMeshProUGUI _zoneLabel;
+    private TextMeshProUGUI _coordsLabel;
 
     private void Awake()
     {
@@ -188,6 +185,27 @@ public class MiniMapPlugin : BaseUnityPlugin
                 CreateMinimapUI();
         }
 
+        if (_zoneLabel != null)
+        {
+            var sceneName = GameData.SceneName;
+            
+            if (string.IsNullOrEmpty(sceneName))
+            {
+                _zoneLabel.text = "Unknown Location";
+            }
+            else if (!string.Equals(sceneName, _zoneLabel.text, StringComparison.Ordinal))
+            {
+                _zoneLabel.text = sceneName;
+            }
+        }
+        
+        if (_coordsLabel != null && GameData.PlayerControl != null)
+        {
+            Vector3 pos = GameData.PlayerControl.transform.position;
+            
+            _coordsLabel.text = $"{Mathf.FloorToInt(pos.x)}, {Mathf.FloorToInt(pos.z)}";
+        }
+
         UpdateMinimapCamera();
         UpdatePlayerArrowOnMinimap();
         UpdateNpcMarkers();
@@ -227,6 +245,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         var canvasGo = new GameObject("MinimapCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         var canvas = canvasGo.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 100; // make sure it’s above the default UI
 
         // === Minimap Panel ===
         var panelGo = new GameObject("MinimapPanel", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
@@ -238,28 +258,45 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         var rawImage = panelGo.GetComponent<RawImage>();
         rawImage.texture = _minimapRenderTexture;
-        rawImage.color = new Color(1f, 1f, 1f, 0.9f); // Optional transparency
+        rawImage.color = new Color(1f, 1f, 1f, 0.9f);
 
         _minimapUIRoot = panelGo;
         
-        // === Drag Handle (small blue dot) ===
-        var dragHandle = new GameObject("MinimapDragHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(DragUI));
-        dragHandle.transform.SetParent(panelGo.transform, false);
-
-        var handleRect = dragHandle.GetComponent<RectTransform>();
-        handleRect.sizeDelta = new Vector2(16, 16);
-        handleRect.anchorMin = new Vector2(1, 1);
-        handleRect.anchorMax = new Vector2(1, 1);
-        handleRect.pivot = new Vector2(1, 1);
-        handleRect.anchoredPosition = new Vector2(-4, -4);
-
-        var handleImage = dragHandle.GetComponent<Image>();
-        handleImage.color = new Color(0.3f, 0.5f, 1f, 0.9f);
-
-        var handleDrag = dragHandle.GetComponent<DragUI>();
-        handleDrag.Parent = panelGo.transform; // ✅ this prevents the null error
-        handleDrag.isInv = true;
-
+        // === Coordinates Label ===
+        // var coordsGo = new GameObject("PlayerCoords", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        // coordsGo.transform.SetParent(_minimapUIRoot.transform, false);
+        //
+        // _coordsLabel = coordsGo.GetComponent<TextMeshProUGUI>();
+        // _coordsLabel.fontSize = 14;
+        // _coordsLabel.alignment = TextAlignmentOptions.Center;
+        // _coordsLabel.color = new Color(1f, 1f, 1f, 1f);
+        // _coordsLabel.text = "(0, 0)";
+        // _coordsLabel.enableAutoSizing = false;
+        // _coordsLabel.enableWordWrapping = false;
+        //
+        // var coordsRect = coordsGo.GetComponent<RectTransform>();
+        // coordsRect.anchorMin = new Vector2(0.5f, 0f);
+        // coordsRect.anchorMax = new Vector2(0.5f, 0f);
+        // coordsRect.pivot = new Vector2(0.5f, 0f);
+        // coordsRect.anchoredPosition = new Vector2(0, 4); // Padding from bottom
+        // coordsRect.sizeDelta = Vector2.zero; // Let text bounds define it
+        //
+        // var coordsBgGo = new GameObject("CoordsBG", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        // coordsBgGo.transform.SetParent(coordsGo.transform, false);
+        //
+        // var coordsBgRect = coordsBgGo.GetComponent<RectTransform>();
+        // coordsBgRect.anchorMin = new Vector2(0.5f, 0.5f);
+        // coordsBgRect.anchorMax = new Vector2(0.5f, 0.5f);
+        // coordsBgRect.pivot = new Vector2(0.5f, 0.5f);
+        // coordsBgRect.anchoredPosition = Vector2.zero;
+        //
+        // _coordsLabel.ForceMeshUpdate();
+        // var bounds = _coordsLabel.textBounds.size;
+        // coordsBgRect.sizeDelta = new Vector2(bounds.x + 12f, bounds.y + 6f);
+        //
+        // var coordsBgImage = coordsBgGo.GetComponent<Image>();
+        // coordsBgImage.color = new Color(0f, 0f, 0f, 0.8f);
+        
         // === Player Arrow ===
         var arrowGo = new GameObject("PlayerArrow", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         arrowGo.transform.SetParent(panelGo.transform, false);
@@ -288,8 +325,60 @@ public class MiniMapPlugin : BaseUnityPlugin
         containerRect.sizeDelta = Vector2.zero;
 
         _npcMarkerContainer = containerRect;
-    }
+        
+        // === Zone Label Background ===
+        var bgGo = new GameObject("ZoneLabelBG", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        bgGo.transform.SetParent(_minimapUIRoot.transform, false); // Sibling to label, not child
 
+        var bgRect = bgGo.GetComponent<RectTransform>();
+        bgRect.anchorMin = new Vector2(0.5f, 1f);
+        bgRect.anchorMax = new Vector2(0.5f, 1f);
+        bgRect.pivot = new Vector2(0.5f, 0f);
+        bgRect.anchoredPosition = Vector2.zero;
+        bgRect.sizeDelta = new Vector2(250, 24);
+
+        var bgImage = bgGo.GetComponent<Image>();
+        bgImage.color = new Color(0f, 0f, 0f, 0.5f);
+
+        // === Zone Label (white text on top)
+        var labelGo = new GameObject("ZoneLabel", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        labelGo.transform.SetParent(_minimapUIRoot.transform, false); // Same level as background
+
+        _zoneLabel = labelGo.GetComponent<TextMeshProUGUI>();
+
+        var labelRect = labelGo.GetComponent<RectTransform>();
+        labelRect.anchorMin = new Vector2(0.5f, 1f); // Top center of panel
+        labelRect.anchorMax = new Vector2(0.5f, 1f);
+        labelRect.pivot = new Vector2(0.5f, 0f);
+        labelRect.anchoredPosition = Vector2.zero;
+        labelRect.sizeDelta = new Vector2(250, 24);
+
+        _zoneLabel.fontSize = 18;
+        _zoneLabel.alignment = TextAlignmentOptions.Center;
+        _zoneLabel.color = new Color(1f, 1f, 1f, 0.75f);
+        
+        // === Drag Handle (small blue dot) ===
+        var dragHandle = new GameObject("MinimapDragHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(DragUI));
+
+        var handleImage = dragHandle.GetComponent<Image>();
+        handleImage.color = new Color(0.3f, 0.5f, 1f, 0.5f);
+
+        var handleDrag = dragHandle.GetComponent<DragUI>();
+        handleDrag.Parent = panelGo.transform; // ✅ this prevents the null error
+        handleDrag.isInv = true;
+        
+        // Move drag handle under the label
+        dragHandle.transform.SetParent(labelGo.transform, false);
+        dragHandle.transform.SetAsLastSibling(); // ensures it's drawn on top of everything else
+
+        var handleRect = dragHandle.GetComponent<RectTransform>();
+        handleRect.sizeDelta = new Vector2(14, 14);
+        handleRect.anchorMin = new Vector2(1f, 0.5f);
+        handleRect.anchorMax = new Vector2(1f, 0.5f);
+        handleRect.pivot = new Vector2(1f, 0.5f);
+        handleRect.anchoredPosition = new Vector2(-4, 0); // 8px padding to the right
+    }
+    
     private void UpdatePlayerArrowOnMinimap()
     {
         if (_playerArrowRect == null) return;
@@ -335,17 +424,12 @@ public class MiniMapPlugin : BaseUnityPlugin
             Vector3 worldPos = character.transform.position;
             Vector3 viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
 
-            if (Input.GetKeyDown(InputManager.Forward))
-            {
-                if (character.name.Contains("Samuel"))
-                {
-                    Logger.LogInfo($"[{character.name}] World: {worldPos}, Viewport: {viewportPos}");
-                
-                    Logger.LogInfo($"[Player] World: {GameData.PlayerControl.transform.position}");
-                }
-            }
+            // Add padding to prevent markers at the edges
+            float padding = 0.04f;
 
-            if (viewportPos.z <= 0f || viewportPos.x < 0f || viewportPos.x > 1f || viewportPos.y < 0f || viewportPos.y > 1f)
+            if (viewportPos.z <= 0f || 
+                viewportPos.x < padding || viewportPos.x > 1f - padding || 
+                viewportPos.y < padding || viewportPos.y > 1f - padding)
                 continue;
 
             Color color;
@@ -449,7 +533,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         float thickness = 1f;
 
         // Helper to create a line
-        GameObject CreateLine(string name, Vector2 size, Vector2 position)
+        void CreateLine(string name, Vector2 size, Vector2 position)
         {
             var line = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
             line.transform.SetParent(marker.transform, false);
@@ -460,8 +544,6 @@ public class MiniMapPlugin : BaseUnityPlugin
 
             var img = line.GetComponent<Image>();
             img.color = borderColor;
-
-            return line;
         }
 
         float halfSize = markerRect.sizeDelta.x / 2f;
@@ -473,343 +555,5 @@ public class MiniMapPlugin : BaseUnityPlugin
         CreateLine("Right",   new Vector2(thickness, 8), new Vector2(halfSize - thickness / 2f, 0));
 
         return marker;
-    }
-
-    // private void OnGUI()
-    // {
-    //     if (GameData.PlayerControl == null || GameData.InCharSelect || GameData.PlayerInv.InvWindow.activeSelf)
-    //         return;
-    //
-    //     if (_minimapCamObj == null || _minimapCamera == null)
-    //     {
-    //         CreateMinimapCamera();
-    //         CreateMinimapUI();
-    //         InitializeGUIStyles();
-    //     }
-    //     
-    //     var sceneName = GameData.SceneName;
-    //     
-    //     // Update true north only once per scene load
-    //     if (string.IsNullOrEmpty(sceneName))
-    //     {
-    //         _currentSceneName = "Unknown Location";
-    //     }
-    //     else if (!string.Equals(sceneName, _currentSceneName, StringComparison.Ordinal))
-    //     {
-    //         _currentSceneName = sceneName;
-    //     }
-    //
-    //     if (GameData.CurrentZoneAnnounce == null || GameData.CurrentZoneAnnounce.transform == null)
-    //     {
-    //         return;
-    //     }
-    //     
-    //     Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
-    //     
-    //     float zoneYaw = zoneRotation.eulerAngles.y;
-    //     
-    //     _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
-    //     
-    //     // True north map orientation
-    //     _minimapCamera.transform.rotation = Quaternion.Euler(90f, (zoneYaw + 180f) % 360f, 0);
-    //
-    //     // Calculate size and position of the window
-    //     float size = Screen.height * 0.1f; // Square minimap
-    //     float x = Screen.width - size - 20f; // 20px padding from right
-    //     float y = Screen.height * 0.25f;     // 25% top
-    //
-    //     _minimapRect = new Rect(x, y, size, size);
-    //
-    //     // Only recreate texture if needed
-    //     int texSize = Mathf.RoundToInt(size);
-    //     if (_minimapRenderTexture == null || _minimapRenderTexture.width != texSize)
-    //     {
-    //         if (_minimapRenderTexture != null)
-    //             _minimapRenderTexture.Release();
-    //
-    //         _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
-    //         _minimapCamera.targetTexture = _minimapRenderTexture;
-    //         _minimapCamera.enabled = true;
-    //     }
-    //
-    //     float buttonSize = Screen.height * 0.18f;
-    //     float panelHeight = buttonSize + 30f; // extra height for buttons
-    //     
-    //     _minimapRect = new Rect(Screen.width - buttonSize - 20f, Screen.height * 0.075f, buttonSize, panelHeight);
-    //
-    //     // Draw window and inside it, the minimap
-    //     _minimapRect = GUI.Window(WindowId, _minimapRect, DrawMiniMapPanel, "", _windowStyle);
-    // }
-
-    private void InitializeGUIStyles()
-    {
-        // Style for panel window
-        Texture2D bgTex = new Texture2D(1, 1);
-        bgTex.SetPixel(0, 0, new Color(0f, 0f, 0.0f, 0.25f));
-        bgTex.Apply();
-        
-        _windowStyle = new GUIStyle(GUI.skin.window);
-        
-        _windowStyle.normal.background = bgTex;
-        _windowStyle.active.background = bgTex;
-        _windowStyle.hover.background = bgTex;
-        _windowStyle.focused.background = bgTex;
-        _windowStyle.onNormal.background = bgTex;
-        _windowStyle.onActive.background = bgTex;
-        _windowStyle.onHover.background = bgTex;
-        _windowStyle.onFocused.background = bgTex;
-        
-        var titleColor = Color.white;
-        
-        _windowStyle.border = new RectOffset(10, 10, 10, 10);
-        _windowStyle.padding = new RectOffset(4, 4, 4, 4);
-        
-        _buttonStyle = new GUIStyle(GUI.skin.button);
-        _buttonStyle.fontSize = 16;
-        _buttonStyle.alignment = TextAnchor.MiddleCenter;
-
-        // Create a fully transparent texture
-        Texture2D clearTexture = new Texture2D(1, 1);
-        clearTexture.SetPixel(0, 0, new Color(0, 0, 0, 0.3f));
-        clearTexture.Apply();
-
-        // Assign the transparent background to all states
-        _buttonStyle.normal.background = clearTexture;
-        _buttonStyle.hover.background = clearTexture;
-        _buttonStyle.active.background = clearTexture;
-        _buttonStyle.focused.background = clearTexture;
-        _buttonStyle.onNormal.background = clearTexture;
-        _buttonStyle.onHover.background = clearTexture;
-        _buttonStyle.onActive.background = clearTexture;
-        _buttonStyle.onFocused.background = clearTexture;
-
-        // Set your consistent font color
-        _buttonStyle.normal.textColor = titleColor;
-        _buttonStyle.hover.textColor = titleColor;
-        _buttonStyle.active.textColor = titleColor;
-        _buttonStyle.focused.textColor = titleColor;
-        _buttonStyle.onNormal.textColor = titleColor;
-        _buttonStyle.onHover.textColor = titleColor;
-        _buttonStyle.onActive.textColor = titleColor;
-        _buttonStyle.onFocused.textColor = titleColor;
-        
-        _zoomInButtonStyle = new GUIStyle(GUI.skin.button);
-        _zoomInButtonStyle.normal.background = _mapZoomInTexture;
-        _zoomInButtonStyle.hover.background = _mapZoomInTexture; 
-        _zoomInButtonStyle.active.background = _mapZoomInTexture;
-        _zoomInButtonStyle.border = new RectOffset(0, 0, 0, 0); // Optional, avoids weird stretching
-        _zoomInButtonStyle.padding = new RectOffset(0, 0, 0, 0);
-        
-        _zoomOutButtonStyle = new GUIStyle(GUI.skin.button);
-        _zoomOutButtonStyle.normal.background = _mapZoomOutTexture;
-        _zoomOutButtonStyle.hover.background = _mapZoomOutTexture; 
-        _zoomOutButtonStyle.active.background = _mapZoomOutTexture;
-        _zoomOutButtonStyle.border = new RectOffset(0, 0, 0, 0); // Optional, avoids weird stretching
-        _zoomOutButtonStyle.padding = new RectOffset(0, 0, 0, 0);
-    }
-
-    private void DrawMiniMapPanel(int id)
-    {
-        float texSize = _minimapRect.width;
-        
-        // Map Transparency
-        GUI.color = new Color(1f, 1f, 1f, 0.9f);
-        
-        GUI.DrawTexture(new Rect(0, 0, texSize, texSize), _minimapRenderTexture);
-        
-        Vector3 playerPos = GameData.PlayerControl.transform.position;
-        
-        // Draw mobs on map
-        if (_minimapCamera != null && GameData.PlayerControl != null)
-        {
-            // NPCs in zoom range
-            Collider[] hitColliders = Physics.OverlapSphere(playerPos, _zoomLevel);
-
-            foreach (var collider in hitColliders)
-            {
-                Character character = collider.GetComponent<Character>();
-
-                if (character != null
-                    && (character.Alive
-                    && character.isNPC
-                    || character.MiningNode))
-                {
-                    Vector3 worldPos = character.transform.position;
-                    Vector3 viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
-
-                    // Check if it's actually in view
-                    if (viewportPos.z > 0f && viewportPos.x >= 0f && viewportPos.x <= 1f && viewportPos.y >= 0f && viewportPos.y <= 1f)
-                    {
-                        float dotX = viewportPos.x * texSize;
-                        float dotY = (1f - viewportPos.y) * texSize;
-
-                        float zoneLabelTopY = texSize - 25; // Y cutoff based on label
-
-                        if (dotY >= zoneLabelTopY)
-                            continue; // skip NPCs drawn under the zone label
-
-                        if (character.MyNPC.SimPlayer)
-                        {
-                            if (character.MyNPC.InGroup)
-                                GUI.color = new Color(0f, 1f, 0f, 0.75f);
-                            else
-                            {
-                                GUI.color = new Color(0f, 0.5f, 1f, 0.85f);
-                            }
-                        }
-                        else if (character.isVendor || _bankNpcs.Contains(character.MyNPC.NPCName) || _otherNpcs.Contains(character.MyNPC.NPCName))
-                        {
-                            GUI.color = new Color(1f, 1f, 0f, 0.75f);
-                        }
-                        else if (character.MiningNode)
-                        {
-                            GUI.color = new Color(0.65f, 0.3f, 1f, 0.95f);
-                        }
-                        else if (!character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
-                        {
-                            GUI.color = new Color(0.6f, 0.6f, 0.6f, 0.75f);
-                        }
-                        else
-                        {
-                            GUI.color = new Color(1f, 0f, 0f, 0.75f);
-                            
-                        }
-                        
-                        if (!character.MiningNode || (character.MiningNode && character.enabled))
-                        {
-                            var currentTarget = GameData.PlayerControl.CurrentTarget;
-                            
-                            if (currentTarget != null && currentTarget == character)
-                            {
-                                GUI.DrawTexture(new Rect(dotX - 2, dotY - 2, 9, 9), Texture2D.whiteTexture);
-                            }
-                            else
-                            {
-                                Rect borderRect = new Rect(dotX - 2, dotY - 2, 9, 9);
-                                DrawBorderRect(borderRect, 1f, GUI.color);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Draw player arrow on map
-        Vector3 playerViewportPos = _minimapCamera.WorldToViewportPoint(playerPos);
-        
-        float playerDotX = 4 + playerViewportPos.x * texSize;
-        float playerDotY = 4 + (1f - playerViewportPos.y) * texSize;
-        
-        Vector3 forward = GameData.PlayerControl.transform.forward;
-        
-        Quaternion zoneRotation = GameData.CurrentZoneAnnounce.transform.rotation;
-        
-        float zoneYaw = zoneRotation.eulerAngles.y;
-        
-        float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - ((zoneYaw + 180f) % 360f);
-        
-        Matrix4x4 oldMatrix = GUI.matrix;
-        GUIUtility.RotateAroundPivot(angle, new Vector2(playerDotX, playerDotY));
-
-        if (_arrowTexture != null)
-        {
-            float width = 24f;
-            float height = 24f;
-            
-            GUI.color = new Color(1f, 1f, 1f, 0.70f);
-            
-            GUI.DrawTexture(new Rect(
-                playerDotX - width / 2f, 
-                playerDotY - height / 2f, width, height), _arrowTexture);
-        }
-        else
-        {
-            GUI.color = new Color(1f, 1f, 1f, 0.75f);
-            GUI.DrawTexture(new Rect(playerDotX - 4, playerDotY - 4, 8, 8), Texture2D.whiteTexture);
-        }
-
-        GUI.matrix = oldMatrix;
-        
-        if (GameData.SceneName != null)
-        {
-            DrawZoneName(texSize);
-        }
-        
-        // Zoom in and out buttons below map
-        GUILayout.BeginArea(new Rect(0, texSize, texSize, 30));
-        GUILayout.BeginVertical();
-        GUILayout.Space(2);
-        GUILayout.BeginHorizontal();
-        
-        GUILayout.FlexibleSpace();
-
-        GUI.color = new Color(1f, 1f, 1f, 0.5f);
-        
-        if (GUILayout.Button(GUIContent.none, _zoomOutButtonStyle, GUILayout.Width(texSize / 10), GUILayout.Height(texSize / 10)))
-        {
-            _zoomLevel = Mathf.Min(80f, _zoomLevel + 5f); // Zoom out
-            // Update zoom level
-            _minimapCamera.orthographicSize = _zoomLevel;
-        }
-
-        if (GUILayout.Button(GUIContent.none, _zoomInButtonStyle, GUILayout.Width(texSize / 10), GUILayout.Height(texSize / 10)))
-        {
-            _zoomLevel = Mathf.Max(50f, _zoomLevel - 5f); // Zoom in
-            // Update zoom level
-            _minimapCamera.orthographicSize = _zoomLevel;
-        }
-        
-        GUILayout.Space(2);
-
-        GUILayout.EndHorizontal();
-        GUILayout.EndVertical();
-        GUILayout.EndArea();
-    }
-
-    private void DrawZoneName(float texSize)
-    {
-        var playerPos = GameData.PlayerControl.transform.position;
-        
-        var overlayText = $"{_currentSceneName}";
-
-        if (!string.IsNullOrEmpty(Mathf.FloorToInt(playerPos.x).ToString()) && !string.IsNullOrEmpty(Mathf.FloorToInt(playerPos.z).ToString()))
-        {
-            overlayText += $" ({Mathf.FloorToInt(playerPos.x)}, {Mathf.FloorToInt(playerPos.z)})";
-        }
-            
-        GUIStyle sceneLabelStyle = new GUIStyle(GUI.skin.label)
-        {
-            alignment = TextAnchor.LowerCenter,
-            fontSize = 12,
-            fontStyle = FontStyle.Bold,
-            normal = { textColor = new Color(1f, 1f, 1f, 0.95f) }
-        };
-            
-        Rect sceneLabelRect = new Rect(4, 4 + texSize - 22, texSize, 20); // Inside minimap at bottom
-            
-        GUI.color = new Color(0f, 0f, 0f, 0f);
-            
-        GUI.DrawTexture(sceneLabelRect, Texture2D.whiteTexture);
-            
-        GUI.color = Color.white;
-            
-        GUI.Label(sceneLabelRect, overlayText, sceneLabelStyle);
-    }
-    
-    private void DrawBorderRect(Rect rect, float thickness, Color color)
-    {
-        Color prevColor = GUI.color;
-        GUI.color = color;
-
-        // Top
-        GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, thickness), Texture2D.whiteTexture);
-        // Bottom
-        GUI.DrawTexture(new Rect(rect.x, rect.yMax - thickness, rect.width, thickness), Texture2D.whiteTexture);
-        // Left
-        GUI.DrawTexture(new Rect(rect.x, rect.y, thickness, rect.height), Texture2D.whiteTexture);
-        // Right
-        GUI.DrawTexture(new Rect(rect.xMax - thickness, rect.y, thickness, rect.height), Texture2D.whiteTexture);
-
-        GUI.color = prevColor;
     }
 }

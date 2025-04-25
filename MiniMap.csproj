@@ -31,6 +31,10 @@
       <HintPath>..\ErenBot\lib\Assembly-CSharp.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>..\Assemblies\Unity.TextMeshPro.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>..\Assemblies\UnityEngine.UI.dll</HintPath>
       <Private>False</Private>
