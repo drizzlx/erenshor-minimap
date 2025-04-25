@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BepInEx;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace MiniMap;
@@ -30,6 +32,7 @@ public class MiniMapPlugin : BaseUnityPlugin
     private Texture2D _mapZoomOutTexture;
     private GUIStyle _zoomInButtonStyle;
     private GUIStyle _zoomOutButtonStyle;
+    private Texture2D _mapZoneBgTexture;
     
     private string _assetDirectory;
     
@@ -41,6 +44,12 @@ public class MiniMapPlugin : BaseUnityPlugin
     private TextMeshProUGUI _zoneLabel;
     private TextMeshProUGUI _coordsLabel;
     private readonly Collider[] _overlapResults = new Collider[1024];
+    private float _minimapUISize = 250f;
+    private const float MinMinimapSize = 200f;
+    private const float MaxMinimapSize = 350f;
+    private RectTransform _zoneLabelRect;
+    private RectTransform _zoneLabelBGRect;
+    private Vector2 _defaultMinimapPosition;
 
     private void Awake()
     {
@@ -56,7 +65,8 @@ public class MiniMapPlugin : BaseUnityPlugin
             // Fallback
             _assetDirectory = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
         }
-        
+
+        LoadZoneBgTexture();
         LoadArrowTexture();
         LoadZoomTexture();
     }
@@ -100,6 +110,29 @@ public class MiniMapPlugin : BaseUnityPlugin
         {
             Logger.LogError($"Error during minimap cleanup: {ex}");
         }
+    }
+    
+    private void LoadZoneBgTexture()
+    {
+        if (!Directory.Exists(_assetDirectory))
+        {
+            return;
+        }
+        
+        var assetPath = Path.Combine(_assetDirectory, "zone_bg.png");
+
+        if (!File.Exists(assetPath))
+        {
+            Logger.LogError("zone_bg.png texture not found " + assetPath);
+            
+            return;
+        }
+        
+        var data = File.ReadAllBytes(assetPath);
+        
+        _mapZoneBgTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        
+        _mapZoneBgTexture.LoadImage(data);
     }
     
     private void LoadZoomTexture()
@@ -184,6 +217,8 @@ public class MiniMapPlugin : BaseUnityPlugin
             if (_minimapUIRoot == null) 
                 CreateMinimapUI();
         }
+        
+        ScaleZoneLabelToMinimap();
 
         if (_zoneLabel != null)
         {
@@ -253,14 +288,39 @@ public class MiniMapPlugin : BaseUnityPlugin
         panelGo.transform.SetParent(canvasGo.transform, false);
 
         var rect = panelGo.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(250, 250); // Set size
-        rect.anchoredPosition = new Vector2(-150, 150); // Position from screen center
+        rect.sizeDelta = new Vector2(_minimapUISize, _minimapUISize);
+        rect.anchorMin = new Vector2(1f, 1f); // Top-right
+        rect.anchorMax = new Vector2(1f, 1f);
+        rect.pivot = new Vector2(1f, 1f);
+        rect.anchoredPosition = new Vector2(-20f, -20f); // 20px inward from top-right
+        
+        _defaultMinimapPosition = rect.anchoredPosition;
 
         var rawImage = panelGo.GetComponent<RawImage>();
         rawImage.texture = _minimapRenderTexture;
         rawImage.color = new Color(1f, 1f, 1f, 0.9f);
 
         _minimapUIRoot = panelGo;
+        
+        StartCoroutine(LatePlaceMinimap());
+        
+        // === Resize Handle (bottom-right corner) ===
+        var resizeHandle = new GameObject("MinimapResizeHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        resizeHandle.transform.SetParent(panelGo.transform, false);
+
+        var resizeRect = resizeHandle.GetComponent<RectTransform>();
+        resizeRect.sizeDelta = new Vector2(16, 16); // size of corner grab
+        resizeRect.anchorMin = new Vector2(1f, 0f); // bottom-right corner
+        resizeRect.anchorMax = new Vector2(1f, 0f);
+        resizeRect.pivot = new Vector2(1f, 0f);
+        resizeRect.anchoredPosition = new Vector2(-2f, 2f); // slight padding from edges
+
+        var resizeImage = resizeHandle.GetComponent<Image>();
+        resizeImage.color = new Color(0.75f, 0.75f, 0.75f, 0.5f); // subtle semi-transparent gray
+        resizeImage.raycastTarget = true;
+
+        // Add resizer logic component
+        resizeHandle.AddComponent<ResizeUI>().Target = panelGo.GetComponent<RectTransform>();
         
         // === Coordinates Label ===
         // var coordsGo = new GameObject("PlayerCoords", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
@@ -328,50 +388,59 @@ public class MiniMapPlugin : BaseUnityPlugin
         
         // === Zone Label Background ===
         var bgGo = new GameObject("ZoneLabelBG", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
-        bgGo.transform.SetParent(_minimapUIRoot.transform, false); // Sibling to label, not child
+        bgGo.transform.SetParent(panelGo.transform, false);
 
         var bgRect = bgGo.GetComponent<RectTransform>();
         bgRect.anchorMin = new Vector2(0.5f, 1f);
         bgRect.anchorMax = new Vector2(0.5f, 1f);
-        bgRect.pivot = new Vector2(0.5f, 0f);
-        bgRect.anchoredPosition = Vector2.zero;
+        bgRect.pivot = new Vector2(0.5f, 0.25f);
+        bgRect.anchoredPosition = new Vector2(0f, 0f); // Move tight to the top
         bgRect.sizeDelta = new Vector2(250, 24);
 
         var bgImage = bgGo.GetComponent<Image>();
-        bgImage.color = new Color(0f, 0f, 0f, 0.5f);
+        if (_mapZoneBgTexture == null)
+            LoadZoneBgTexture(); // Ensure it's loaded
+
+        bgImage.sprite = Sprite.Create(
+            _mapZoneBgTexture,
+            new Rect(0, 0, _mapZoneBgTexture.width, _mapZoneBgTexture.height),
+            new Vector2(0.5f, 0.5f) // center pivot
+        );
+
+        bgImage.color = Color.white; // preserve original texture alpha
+        bgImage.type = Image.Type.Sliced; // optional: use sliced if designed for stretching
 
         // === Zone Label (white text on top)
         var labelGo = new GameObject("ZoneLabel", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
-        labelGo.transform.SetParent(_minimapUIRoot.transform, false); // Same level as background
+        labelGo.transform.SetParent(bgGo.transform, false);
 
         _zoneLabel = labelGo.GetComponent<TextMeshProUGUI>();
 
         var labelRect = labelGo.GetComponent<RectTransform>();
-        labelRect.anchorMin = new Vector2(0.5f, 1f); // Top center of panel
-        labelRect.anchorMax = new Vector2(0.5f, 1f);
-        labelRect.pivot = new Vector2(0.5f, 0f);
+        labelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        labelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        labelRect.pivot = new Vector2(0.5f, 0.5f);
         labelRect.anchoredPosition = Vector2.zero;
-        labelRect.sizeDelta = new Vector2(250, 24);
+        labelRect.sizeDelta = Vector2.zero;
 
         _zoneLabel.fontSize = 18;
         _zoneLabel.alignment = TextAlignmentOptions.Center;
         _zoneLabel.color = new Color(1f, 1f, 1f, 0.85f);
         
+        _zoneLabelRect = labelRect;
+        _zoneLabelBGRect = bgRect;
+        
         // === Drag Handle (diamond style) ===
         var dragHandle = new GameObject("MinimapDragHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(DragUI));
         dragHandle.name = "DiamondDragHandle";
+        dragHandle.transform.SetParent(panelGo.transform, false); // ✅ Set parent to minimap panel
 
         var handleRect = dragHandle.GetComponent<RectTransform>();
         handleRect.sizeDelta = new Vector2(12, 12);
-        handleRect.anchorMin = new Vector2(1f, 0.5f);
-        handleRect.anchorMax = new Vector2(1f, 0.5f);
+        handleRect.anchorMin = new Vector2(1f, 1f);
+        handleRect.anchorMax = new Vector2(1f, 1f);
         handleRect.pivot = new Vector2(0.5f, 0.5f);
-        
-        Canvas.ForceUpdateCanvases();
-        var labelWidth = labelRect.rect.width;
-        var percent = 0.05f; // 5%
-        var offset = -labelWidth * percent;
-        handleRect.anchoredPosition = new Vector2(offset, 0f);
+        handleRect.anchoredPosition = new Vector2(-10f, -6f); // Slight offset inward
 
         var handleImage = dragHandle.GetComponent<Image>();
         handleImage.sprite = Sprite.Create(
@@ -379,43 +448,39 @@ public class MiniMapPlugin : BaseUnityPlugin
             new Rect(0, 0, 1, 1),
             new Vector2(0.5f, 0.5f)
         );
-        handleImage.type = Image.Type.Simple; // important: no tiling/stretching
+        handleImage.type = Image.Type.Simple;
         handleImage.raycastTarget = true;
 
-
-        // rotate it 45 degrees (diamond)
         dragHandle.transform.localRotation = Quaternion.Euler(0, 0, 45f);
 
+        // Drag logic setup
         var handleDrag = dragHandle.GetComponent<DragUI>();
-        handleDrag.Parent = panelGo.transform;
-        handleDrag.isInv = true;
-
-        dragHandle.transform.SetParent(labelGo.transform, false);
-        dragHandle.transform.SetAsLastSibling();
+        handleDrag.Parent = panelGo.transform; // ✅ Drag target = minimap panel
+        handleDrag.isInv = false;
     }
     
-    private Texture2D MakeDiamondGradientTexture(Color topColor)
+    private void SetMinimapSize(float newSize)
     {
-        var size = 32;
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.wrapMode = TextureWrapMode.Clamp;
-        
-        Color highlight = new Color(0.75f, 0.85f, 0.95f, 1f); // cool soft white
+        _minimapUISize = Mathf.Clamp(newSize, MinMinimapSize, MaxMinimapSize);
 
-        for (var y = 0; y < size; y++)
+        if (_minimapUIRoot != null)
         {
-            var rawT = Mathf.Pow((size - 1 - y) / (float)(size - 1), 5.5f);
-            var t = Mathf.Clamp(rawT, 0.7f, 1f);
-            Color c = Color.Lerp(highlight, topColor, t); // ← dark to light
+            var rect = _minimapUIRoot.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(_minimapUISize, _minimapUISize);
 
-            for (var x = 0; x < size; x++)
+            // Update dependent elements (zone label, markers, arrow, etc.)
+            if (_zoneLabel != null)
             {
-                tex.SetPixel(x, y, c);
+                var labelRect = _zoneLabel.GetComponent<RectTransform>();
+                labelRect.sizeDelta = new Vector2(_minimapUISize, 24);
+            }
+
+            var rawImage = _minimapUIRoot.GetComponent<RawImage>();
+            if (rawImage != null)
+            {
+                rawImage.uvRect = new Rect(0, 0, 1, 1); // Reset if needed
             }
         }
-
-        tex.Apply();
-        return tex;
     }
     
     private void UpdatePlayerArrowOnMinimap()
@@ -434,9 +499,12 @@ public class MiniMapPlugin : BaseUnityPlugin
         var viewport = _minimapCamera.WorldToViewportPoint(worldPos);
         var rectTransform = _playerArrowRect;
 
-        var panelSize = rectTransform.rect.width;
-        var x = (viewport.x - 0.5f) * panelSize;
-        var y = (0.5f - viewport.y) * panelSize;
+        var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+        var panelWidth = panelRect.rect.width;
+        var panelHeight = panelRect.rect.height;
+
+        var x = (viewport.x - 0.5f) * panelWidth;
+        var y = (0.5f - viewport.y) * panelHeight;
 
         rectTransform.anchoredPosition = new Vector2(x, y);
 
@@ -618,5 +686,102 @@ public class MiniMapPlugin : BaseUnityPlugin
         CreateLine("Right",   new Vector2(thickness, 8), new Vector2(halfSize - thickness / 2f, 0));
 
         return marker;
+    }
+    
+    private Texture2D MakeDiamondGradientTexture(Color topColor)
+    {
+        var size = 32;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        
+        Color highlight = new Color(0.75f, 0.85f, 0.95f, 1f); // cool soft white
+
+        for (var y = 0; y < size; y++)
+        {
+            var rawT = Mathf.Pow((size - 1 - y) / (float)(size - 1), 5.5f);
+            var t = Mathf.Clamp(rawT, 0.7f, 1f);
+            Color c = Color.Lerp(highlight, topColor, t); // ← dark to light
+
+            for (var x = 0; x < size; x++)
+            {
+                tex.SetPixel(x, y, c);
+            }
+        }
+
+        tex.Apply();
+        return tex;
+    }
+    
+    private void ScaleZoneLabelToMinimap()
+    {
+        if (_minimapUIRoot == null || _zoneLabelRect == null || _zoneLabelBGRect == null || _zoneLabel == null)
+            return;
+
+        var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+        float baseSize = 250f;
+        float currentSize = panelRect.rect.width;
+        float scale = currentSize / baseSize;
+
+        // Update font size
+        _zoneLabel.fontSize = 18f * scale;
+
+        // Force text to regenerate mesh
+        _zoneLabel.ForceMeshUpdate();
+
+        // Get actual text bounds
+        var textBounds = _zoneLabel.textBounds.size;
+
+        // Padding
+        float horizontalPadding = 40f * scale; // left/right
+        float verticalPadding = 10f * scale;   // top/bottom
+
+        float labelWidth = textBounds.x + horizontalPadding;
+        float labelHeight = textBounds.y + verticalPadding;
+
+        _zoneLabelRect.sizeDelta = new Vector2(labelWidth, labelHeight);
+        _zoneLabelBGRect.sizeDelta = new Vector2(labelWidth, labelHeight);
+    }
+    
+    private IEnumerator LatePlaceMinimap()
+    {
+        yield return null; // wait one frame
+        
+        if (_minimapUIRoot != null)
+        {
+            var rect = _minimapUIRoot.GetComponent<RectTransform>();
+
+            rect.anchorMin = new Vector2(1f, 1f); // Top-right corner
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);     // Still top-right aligned
+
+            float xOffset = -Screen.width * 0.05f;
+            float yOffset = -Screen.height * 0.12f;
+
+            rect.anchoredPosition = new Vector2(xOffset, yOffset);
+        }
+    }
+
+}
+
+public class ResizeUI : MonoBehaviour, IPointerDownHandler, IDragHandler
+{
+    public RectTransform Target;
+    public float MinSize = 200f;
+    public float MaxSize = 350f;
+
+    private Vector2 _startMouse;
+    private Vector2 _startSize;
+
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        _startMouse = eventData.position;
+        _startSize = Target.sizeDelta;
+    }
+
+    public void OnDrag(PointerEventData eventData)
+    {
+        Vector2 delta = eventData.position - _startMouse;
+        float newSize = Mathf.Clamp(_startSize.x + delta.x, MinSize, MaxSize);
+        Target.sizeDelta = new Vector2(newSize, newSize); // square resize
     }
 }
