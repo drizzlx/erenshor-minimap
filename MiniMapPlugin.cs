@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -41,6 +40,7 @@ public class MiniMapPlugin : BaseUnityPlugin
     private readonly List<GameObject> _npcMarkers = new();
     private TextMeshProUGUI _zoneLabel;
     private TextMeshProUGUI _coordsLabel;
+    private readonly Collider[] _overlapResults = new Collider[1024];
 
     private void Awake()
     {
@@ -119,7 +119,7 @@ public class MiniMapPlugin : BaseUnityPlugin
             return;
         }
         
-        byte[] data = File.ReadAllBytes(assetPath);
+        var data = File.ReadAllBytes(assetPath);
         
         _mapZoomInTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
         
@@ -165,7 +165,7 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private bool LoadImageTextures(string assetPath)
     {
-        byte[] data = File.ReadAllBytes(assetPath);
+        var data = File.ReadAllBytes(assetPath);
         
         _arrowTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
 
@@ -174,7 +174,7 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     private void Update()
     {
-        if (GameData.PlayerControl == null || GameData.InCharSelect || GameData.PlayerInv.InvWindow.activeSelf)
+        if (GameData.PlayerControl == null || GameData.InCharSelect)
             return;
 
         if (_minimapCamera == null)
@@ -201,7 +201,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         
         if (_coordsLabel != null && GameData.PlayerControl != null)
         {
-            Vector3 pos = GameData.PlayerControl.transform.position;
+            var pos = GameData.PlayerControl.transform.position;
             
             _coordsLabel.text = $"{Mathf.FloorToInt(pos.x)}, {Mathf.FloorToInt(pos.z)}";
         }
@@ -221,7 +221,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
         _minimapCamera.backgroundColor = new Color(0, 0, 0, 0);
 
-        int texSize = Mathf.RoundToInt(Screen.height * 0.1f);
+        var texSize = Mathf.RoundToInt(Screen.height * 0.1f);
         if (texSize <= 0) texSize = 256;
 
         _minimapRenderTexture = new RenderTexture(texSize, texSize, 16);
@@ -233,7 +233,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         var zoneAnnounce = GameData.CurrentZoneAnnounce;
         if (zoneAnnounce == null || zoneAnnounce.transform == null) return;
 
-        float yaw = zoneAnnounce.transform.rotation.eulerAngles.y;
+        var yaw = zoneAnnounce.transform.rotation.eulerAngles.y;
 
         _minimapCamera.transform.position = GameData.PlayerControl.transform.position + Vector3.up * 100f;
         _minimapCamera.transform.rotation = Quaternion.Euler(90f, (yaw + 180f) % 360f, 0f);
@@ -355,48 +355,96 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         _zoneLabel.fontSize = 18;
         _zoneLabel.alignment = TextAlignmentOptions.Center;
-        _zoneLabel.color = new Color(1f, 1f, 1f, 0.75f);
+        _zoneLabel.color = new Color(1f, 1f, 1f, 0.85f);
         
-        // === Drag Handle (small blue dot) ===
+        // === Drag Handle (diamond style) ===
         var dragHandle = new GameObject("MinimapDragHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(DragUI));
-
-        var handleImage = dragHandle.GetComponent<Image>();
-        handleImage.color = new Color(0.3f, 0.5f, 1f, 0.5f);
-
-        var handleDrag = dragHandle.GetComponent<DragUI>();
-        handleDrag.Parent = panelGo.transform; // ✅ this prevents the null error
-        handleDrag.isInv = true;
-        
-        // Move drag handle under the label
-        dragHandle.transform.SetParent(labelGo.transform, false);
-        dragHandle.transform.SetAsLastSibling(); // ensures it's drawn on top of everything else
+        dragHandle.name = "DiamondDragHandle";
 
         var handleRect = dragHandle.GetComponent<RectTransform>();
-        handleRect.sizeDelta = new Vector2(14, 14);
+        handleRect.sizeDelta = new Vector2(12, 12);
         handleRect.anchorMin = new Vector2(1f, 0.5f);
         handleRect.anchorMax = new Vector2(1f, 0.5f);
-        handleRect.pivot = new Vector2(1f, 0.5f);
-        handleRect.anchoredPosition = new Vector2(-4, 0); // 8px padding to the right
+        handleRect.pivot = new Vector2(0.5f, 0.5f);
+        
+        Canvas.ForceUpdateCanvases();
+        var labelWidth = labelRect.rect.width;
+        var percent = 0.05f; // 5%
+        var offset = -labelWidth * percent;
+        handleRect.anchoredPosition = new Vector2(offset, 0f);
+
+        var handleImage = dragHandle.GetComponent<Image>();
+        handleImage.sprite = Sprite.Create(
+            MakeDiamondGradientTexture(new Color(0.5f, 0.5f, 0.5f, 0.75f)),
+            new Rect(0, 0, 1, 1),
+            new Vector2(0.5f, 0.5f)
+        );
+        handleImage.type = Image.Type.Simple; // important: no tiling/stretching
+        handleImage.raycastTarget = true;
+
+
+        // rotate it 45 degrees (diamond)
+        dragHandle.transform.localRotation = Quaternion.Euler(0, 0, 45f);
+
+        var handleDrag = dragHandle.GetComponent<DragUI>();
+        handleDrag.Parent = panelGo.transform;
+        handleDrag.isInv = true;
+
+        dragHandle.transform.SetParent(labelGo.transform, false);
+        dragHandle.transform.SetAsLastSibling();
+    }
+    
+    private Texture2D MakeDiamondGradientTexture(Color topColor)
+    {
+        var size = 32;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        
+        Color highlight = new Color(0.75f, 0.85f, 0.95f, 1f); // cool soft white
+
+        for (var y = 0; y < size; y++)
+        {
+            var rawT = Mathf.Pow((size - 1 - y) / (float)(size - 1), 5.5f);
+            var t = Mathf.Clamp(rawT, 0.7f, 1f);
+            Color c = Color.Lerp(highlight, topColor, t); // ← dark to light
+
+            for (var x = 0; x < size; x++)
+            {
+                tex.SetPixel(x, y, c);
+            }
+        }
+
+        tex.Apply();
+        return tex;
     }
     
     private void UpdatePlayerArrowOnMinimap()
     {
-        if (_playerArrowRect == null) return;
+        if (_playerArrowRect == null ||
+            GameData.PlayerControl == null ||
+            GameData.PlayerControl.transform == null ||
+            GameData.CurrentZoneAnnounce == null ||
+            GameData.CurrentZoneAnnounce.transform == null ||
+            _minimapCamera == null)
+        {
+            return;
+        }
 
-        Vector3 worldPos = GameData.PlayerControl.transform.position;
-        Vector3 viewport = _minimapCamera.WorldToViewportPoint(worldPos);
+        var worldPos = GameData.PlayerControl.transform.position;
+        var viewport = _minimapCamera.WorldToViewportPoint(worldPos);
+        var rectTransform = _playerArrowRect;
 
-        float panelSize = _minimapUIRoot.GetComponent<RectTransform>().rect.width;
-        float x = (viewport.x - 0.5f) * panelSize;
-        float y = (0.5f - viewport.y) * panelSize;
+        var panelSize = rectTransform.rect.width;
+        var x = (viewport.x - 0.5f) * panelSize;
+        var y = (0.5f - viewport.y) * panelSize;
 
-        _playerArrowRect.anchoredPosition = new Vector2(x, y);
+        rectTransform.anchoredPosition = new Vector2(x, y);
 
-        Vector3 forward = GameData.PlayerControl.transform.forward;
-        float yaw = GameData.CurrentZoneAnnounce.transform.rotation.eulerAngles.y;
-        float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - ((yaw + 180f) % 360f);
+        var forward = GameData.PlayerControl.transform.forward;
+        var yaw = GameData.CurrentZoneAnnounce.transform.rotation.eulerAngles.y;
+        var angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg - ((yaw + 180f) % 360f);
 
-        _playerArrowRect.localRotation = Quaternion.Euler(0, 0, -angle);
+        rectTransform.localRotation = Quaternion.Euler(0, 0, -angle);
     }
     
     private void UpdateNpcMarkers()
@@ -404,39 +452,61 @@ public class MiniMapPlugin : BaseUnityPlugin
         if (_npcMarkerContainer == null || _minimapCamera == null || GameData.PlayerControl == null)
             return;
 
+        if (_overlapResults == null)
+        {
+            Logger.LogError("_overlapResults array is null");
+            return;
+        }
+
+        if (_minimapUIRoot == null)
+        {
+            Logger.LogError("_minimapUIRoot is null");
+            return;
+        }
+
         // Hide all existing markers (reuse from pool)
         foreach (var marker in _npcMarkers)
-            marker.SetActive(false);
-
-        Vector3 playerPos = GameData.PlayerControl.transform.position;
-        Collider[] hits = Physics.OverlapSphere(playerPos, _zoomLevel);
-
-        foreach (var collider in hits)
         {
-            var character = collider.GetComponent<Character>();
+            if (marker != null)
+                marker.SetActive(false);
+        }
+
+        var playerPos = GameData.PlayerControl.transform.position;
+        var hitCount = Physics.OverlapSphereNonAlloc(playerPos, _zoomLevel, _overlapResults);
+
+        for (var i = 0; i < hitCount; i++)
+        {
+            var collider = _overlapResults[i];
+            var character = collider?.GetComponent<Character>();
             
-            if (character == null || (!character.Alive && !character.MiningNode)) 
-                continue;
-            
-            if (!character.isNPC && !character.MiningNode) 
+            if (character == null)
                 continue;
 
-            Vector3 worldPos = character.transform.position;
-            Vector3 viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
+            if ((!character.Alive && !character.MiningNode) || (!character.isNPC && !character.MiningNode))
+                continue;
 
-            // Add padding to prevent markers at the edges
-            float padding = 0.04f;
+            if (character.MyNPC == null)
+            {
+                continue;
+            }
 
-            if (viewportPos.z <= 0f || 
-                viewportPos.x < padding || viewportPos.x > 1f - padding || 
+            var worldPos = character.transform.position;
+            var viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
+
+            // Padding to prevent edge clutter
+            var padding = 0.04f;
+            if (viewportPos.z <= 0f ||
+                viewportPos.x < padding || viewportPos.x > 1f - padding ||
                 viewportPos.y < padding || viewportPos.y > 1f - padding)
                 continue;
 
+            // Determine color
             Color color;
-
             if (character.MyNPC.SimPlayer)
             {
-                color = character.MyNPC.InGroup ? new Color(0f, 1f, 0f, 0.75f) : new Color(0f, 0.5f, 1f, 0.85f);
+                color = character.MyNPC.InGroup
+                    ? new Color(0f, 1f, 0f, 0.75f)
+                    : new Color(0f, 0.5f, 1f, 0.85f);
             }
             else if (character.isVendor || _bankNpcs.Contains(character.MyNPC.NPCName) || _otherNpcs.Contains(character.MyNPC.NPCName))
             {
@@ -446,7 +516,8 @@ public class MiniMapPlugin : BaseUnityPlugin
             {
                 color = new Color(0.65f, 0.3f, 1f, 0.95f);
             }
-            else if (!character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
+            else if (GameData.PlayerControl.Myself == null || character.AggressiveTowards == null ||
+                     !character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
             {
                 color = new Color(0.6f, 0.6f, 0.6f, 0.75f);
             }
@@ -454,25 +525,14 @@ public class MiniMapPlugin : BaseUnityPlugin
             {
                 color = new Color(1f, 0f, 0f, 0.75f); // Aggressive enemy
             }
-            
+
             if (!character.MiningNode || (character.MiningNode && character.enabled))
             {
-                bool isTarget = GameData.PlayerControl.CurrentTarget != null &&
-                                GameData.PlayerControl.CurrentTarget == character;
+                var isTarget = GameData.PlayerControl.CurrentTarget != null &&
+                               GameData.PlayerControl.CurrentTarget == character;
 
-                GameObject marker = null;
+                var marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == (isTarget ? "NPCMarkerSolid" : "NPCMarker"));
 
-                // Try to reuse an existing marker of the correct type
-                if (isTarget)
-                {
-                    marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == "NPCMarkerSolid");
-                }
-                else
-                {
-                    marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == "NPCMarker");
-                }
-
-                // Create if needed
                 if (marker == null)
                 {
                     marker = isTarget ? CreateSolidMarker(color) : CreateMarker(color);
@@ -483,25 +543,28 @@ public class MiniMapPlugin : BaseUnityPlugin
                 {
                     foreach (var img in marker.GetComponentsInChildren<Image>())
                     {
-                        img.color = color;
+                        if (img != null)
+                            img.color = color;
                     }
                     marker.SetActive(true);
                 }
 
-                RectTransform markerRect = marker.GetComponent<RectTransform>();
-                RectTransform panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+                var markerRect = marker.GetComponent<RectTransform>();
+                var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+                if (markerRect == null || panelRect == null)
+                    continue;
 
-                float panelWidth = panelRect.rect.width;
-                float panelHeight = panelRect.rect.height;
+                var panelWidth = panelRect.rect.width;
+                var panelHeight = panelRect.rect.height;
 
-                float dotX = (viewportPos.x - 0.5f) * panelWidth;
-                float dotY = (viewportPos.y - 0.5f) * panelHeight;
+                var dotX = (viewportPos.x - 0.5f) * panelWidth;
+                var dotY = (viewportPos.y - 0.5f) * panelHeight;
 
                 markerRect.anchoredPosition = new Vector2(dotX, dotY);
             }
         }
     }
-    
+
     private GameObject CreateSolidMarker(Color color)
     {
         var marker = new GameObject("NPCMarkerSolid", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
@@ -530,7 +593,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         markerRect.pivot = new Vector2(0.5f, 0.5f);
 
         // Thickness in pixels
-        float thickness = 1f;
+        var thickness = 1f;
 
         // Helper to create a line
         void CreateLine(string name, Vector2 size, Vector2 position)
@@ -546,7 +609,7 @@ public class MiniMapPlugin : BaseUnityPlugin
             img.color = borderColor;
         }
 
-        float halfSize = markerRect.sizeDelta.x / 2f;
+        var halfSize = markerRect.sizeDelta.x / 2f;
 
         // Create 4 sides
         CreateLine("Top",     new Vector2(8, thickness), new Vector2(0,  halfSize - thickness / 2f));
