@@ -34,9 +34,24 @@ public class MiniMapPlugin : BaseUnityPlugin
     private Texture2D _mapZoomOutTexture;
     private GUIStyle _zoomInButtonStyle;
     private GUIStyle _zoomOutButtonStyle;
+    
+    private string _assetDirectory;
 
     private void Awake()
     {
+        var dllPath = Info.Location;
+        
+        if (dllPath != null)
+        {
+            // Get asset path dynamically
+            _assetDirectory = Path.GetDirectoryName(dllPath);
+        }
+        else
+        {
+            // Fallback
+            _assetDirectory = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
+        }
+        
         LoadArrowTexture();
         LoadZoomTexture();
     }
@@ -53,18 +68,18 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     private void LoadZoomTexture()
     {
-        string assetDir = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
-
-        if (!Directory.Exists(assetDir))
+        if (!Directory.Exists(_assetDirectory))
         {
             return;
         }
 
         // Zoom In
-        var assetPath = Path.Combine(assetDir, "zoom_in.png");
+        var assetPath = Path.Combine(_assetDirectory, "zoom_in.png");
 
         if (!File.Exists(assetPath))
         {
+            Logger.LogError("zoom_in.png texture not found " + assetPath);
+            
             return;
         }
         
@@ -75,10 +90,12 @@ public class MiniMapPlugin : BaseUnityPlugin
         _mapZoomInTexture.LoadImage(data);
         
         // Zoom Out
-        assetPath = Path.Combine(assetDir, "zoom_out.png");
+        assetPath = Path.Combine(_assetDirectory, "zoom_out.png");
 
         if (!File.Exists(assetPath))
         {
+            Logger.LogError("zoom_out.png texture not found " + assetPath);
+            
             return;
         }
         
@@ -91,26 +108,13 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private void LoadArrowTexture()
     {
-        string assetDir = Path.Combine(Paths.PluginPath, "drizzlx-ErenshorMiniMap");
-        string legacyAssetDir = Path.Combine(Paths.PluginPath, "Drizzlx-Erenshor-MiniMap", "Assets");
-        string dir;
 
-        if (Directory.Exists(assetDir))
+        if (!Directory.Exists(_assetDirectory))
         {
-            dir = assetDir;
-        }
-        else if (Directory.Exists(legacyAssetDir))
-        {
-            dir = legacyAssetDir;
-        }
-        else
-        {
-            Logger.LogError("Missing directory and arrow texture " + Path.Combine(assetDir, "arrow.png"));
-            
             return;
         }
 
-        var assetPath = Path.Combine(dir, "arrow.png");
+        var assetPath = Path.Combine(_assetDirectory, "arrow.png");
 
         if (File.Exists(assetPath))
         {
@@ -120,7 +124,7 @@ public class MiniMapPlugin : BaseUnityPlugin
             return;
         }
         
-        Logger.LogError("Arrow texture not found " + assetPath);
+        Logger.LogError("arrow.png texture not found " + assetPath);
     }
 
     private bool LoadImageTextures(string assetPath)
@@ -415,7 +419,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         
         GUILayout.FlexibleSpace();
 
-        GUI.color = new Color(1f, 1f, 1f, 0.4f);
+        GUI.color = new Color(1f, 1f, 1f, 0.5f);
         
         if (GUILayout.Button(GUIContent.none, _zoomOutButtonStyle, GUILayout.Width(texSize / 10), GUILayout.Height(texSize / 10)))
         {
