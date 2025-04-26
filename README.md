@@ -38,6 +38,12 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
 
 
 ## Change Log
+2.0.0
+- Resizable UI
+- Draggable UI
+- Mouse scroll to zoom in and out
+- Complete UI overhaul
+
 1.2.0
 - Change to a more visible player arrow image.
 - Fixed map orientation bug, North should always be upwards.

@@ -8,6 +8,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using Object = UnityEngine.Object;
 
 namespace MiniMap;
 
@@ -28,10 +29,6 @@ public class MiniMapPlugin : BaseUnityPlugin
     private Texture2D _arrowTexture;
     
     // Map textures
-    private Texture2D _mapZoomInTexture;
-    private Texture2D _mapZoomOutTexture;
-    private GUIStyle _zoomInButtonStyle;
-    private GUIStyle _zoomOutButtonStyle;
     private Texture2D _mapZoneBgTexture;
     private Texture2D _mapBorderTexture;
     
@@ -46,11 +43,12 @@ public class MiniMapPlugin : BaseUnityPlugin
     private TextMeshProUGUI _coordsLabel;
     private readonly Collider[] _overlapResults = new Collider[1024];
     private float _minimapUISize = 250f;
-    private const float MinMinimapSize = 200f;
-    private const float MaxMinimapSize = 350f;
     private RectTransform _zoneLabelRect;
     private RectTransform _zoneLabelBGRect;
-
+    private Transform _miniMapPanelGoTransform;
+    public static Vector2 SavedMinimapPosition;
+    public static Vector2 SavedMinimapSize;
+    
     private void Awake()
     {
         var dllPath = Info.Location;
@@ -69,7 +67,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         LoadMapBorderTexture();
         LoadZoneBgTexture();
         LoadArrowTexture();
-        LoadZoomTexture();
     }
     
     private void OnDestroy()
@@ -126,7 +123,10 @@ public class MiniMapPlugin : BaseUnityPlugin
                 CreateMinimapUI();
         }
         
-        ScaleZoneLabelToMinimap();
+        if (_miniMapPanelGoTransform != null)
+        {
+            SavedMinimapPosition = _miniMapPanelGoTransform.GetComponent<RectTransform>().anchoredPosition;
+        }
 
         if (_zoneLabel != null)
         {
@@ -145,11 +145,26 @@ public class MiniMapPlugin : BaseUnityPlugin
             LayoutRebuilder.ForceRebuildLayoutImmediate(_zoneLabel.rectTransform.parent.GetComponent<RectTransform>());
         }
         
+        ScaleZoneLabelToMinimap();
+        
         if (_coordsLabel != null && GameData.PlayerControl != null)
         {
             var pos = GameData.PlayerControl.transform.position;
             
             _coordsLabel.text = $"{Mathf.FloorToInt(pos.x)}, {Mathf.FloorToInt(pos.z)}";
+        }
+        
+        float scroll = Input.mouseScrollDelta.y;
+
+        if (scroll > 0f)
+        {
+            _zoomLevel = Mathf.Clamp(_zoomLevel - 5f, 50f, 80f);
+            _minimapCamera.orthographicSize = _zoomLevel;
+        }
+        else if (scroll < 0f)
+        {
+            _zoomLevel = Mathf.Clamp(_zoomLevel + 5f, 50f, 80f);
+            _minimapCamera.orthographicSize = _zoomLevel;
         }
 
         UpdateMinimapCamera();
@@ -199,11 +214,51 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         // Initial anchor to the top right of screen.
         var rect = panelGo.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(_minimapUISize, _minimapUISize);
+        
+        if (SavedMinimapSize != Vector2.zero)
+        {
+            rect.sizeDelta = SavedMinimapSize;
+        }
+        else
+        {
+            rect.sizeDelta = new Vector2(_minimapUISize, _minimapUISize);
+        }
+        
         rect.anchorMin = new Vector2(1f, 1f); // Top-right
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(1f, 1f);
-        rect.anchoredPosition = new Vector2(-20f, -20f); // 20px inward from top-right
+
+        if (SavedMinimapPosition != Vector2.zero)
+        {
+            rect.anchoredPosition = SavedMinimapPosition;
+        }
+        else
+        {
+            var xOffset = -Screen.width * 0.05f;
+            var yOffset = -Screen.height * 0.12f;
+
+            rect.anchoredPosition = new Vector2(xOffset, yOffset);
+        }
+        
+        // === Zone Label Background ===
+        var bgGo = new GameObject("ZoneLabelBG", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(ContentSizeFitter), typeof(LayoutElement), typeof(VerticalLayoutGroup));
+        bgGo.transform.SetParent(panelGo.transform, false);
+
+        var bgRect = bgGo.GetComponent<RectTransform>();
+        bgRect.anchorMin = new Vector2(0f, 1f);
+        bgRect.anchorMax = new Vector2(1f, 1f);
+        bgRect.pivot = new Vector2(0.5f, 0.21f);
+        bgRect.anchoredPosition = new Vector2(0f, 0f);
+        bgRect.sizeDelta = Vector2.zero; // ContentSizeFitter will manage it
+
+        var bgImage = bgGo.GetComponent<Image>();
+        bgImage.sprite = Sprite.Create(
+            _mapZoneBgTexture,
+            new Rect(0, 0, _mapZoneBgTexture.width, _mapZoneBgTexture.height),
+            new Vector2(0.5f, 0.5f)
+        );
+        bgImage.color = new Color(0.3f, 0.3f, 0.3f, 0.7f);
+        bgImage.type = Image.Type.Sliced;
 
         // Set the mini map image
         var rawImage = panelGo.GetComponent<RawImage>();
@@ -327,26 +382,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         containerRect.sizeDelta = Vector2.zero;
 
         _npcMarkerContainer = containerRect;
-        
-        // === Zone Label Background ===
-        var bgGo = new GameObject("ZoneLabelBG", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(ContentSizeFitter), typeof(LayoutElement), typeof(VerticalLayoutGroup));
-        bgGo.transform.SetParent(panelGo.transform, false);
-
-        var bgRect = bgGo.GetComponent<RectTransform>();
-        bgRect.anchorMin = new Vector2(0f, 1f);
-        bgRect.anchorMax = new Vector2(1f, 1f);
-        bgRect.pivot = new Vector2(0.5f, 0.17f);
-        bgRect.anchoredPosition = new Vector2(0f, 0f);
-        bgRect.sizeDelta = Vector2.zero; // ContentSizeFitter will manage it
-
-        var bgImage = bgGo.GetComponent<Image>();
-        bgImage.sprite = Sprite.Create(
-            _mapZoneBgTexture,
-            new Rect(0, 0, _mapZoneBgTexture.width, _mapZoneBgTexture.height),
-            new Vector2(0.5f, 0.5f)
-        );
-        bgImage.color = new Color(0.3f, 0.3f, 0.3f, 0.7f);
-        bgImage.type = Image.Type.Sliced;
 
         // Fit background to label size
         var bgFitter = bgGo.GetComponent<ContentSizeFitter>();
@@ -361,11 +396,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         layoutGroup.childForceExpandHeight = false;
         layoutGroup.padding = new RectOffset((int)(rect.rect.width * 0.2), (int)(rect.rect.width * 0.2), 16, 16); // Padding around label
         layoutGroup.spacing = 0;
-
-        // LayoutElement to enforce minimum size
-        var layoutElement = bgGo.GetComponent<LayoutElement>();
-        layoutElement.minWidth = rect.rect.width * 0.8f;
-        layoutElement.minHeight = rect.rect.height * 0.2f;  // Enough for text + padding
         
         // === Zone Label (child of BG)
         var labelGo = new GameObject("ZoneLabel", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
@@ -414,6 +444,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         var handleDrag = dragHandle.GetComponent<DragUI>();
         handleDrag.Parent = panelGo.transform;
         handleDrag.isInv = false;
+
+        _miniMapPanelGoTransform = handleDrag.Parent;
     }
     
     private IEnumerator LatePlaceMinimap()
@@ -423,15 +455,22 @@ public class MiniMapPlugin : BaseUnityPlugin
         if (_minimapUIRoot != null)
         {
             var rect = _minimapUIRoot.GetComponent<RectTransform>();
+            
+            if (SavedMinimapPosition != Vector2.zero)
+            {
+                rect.anchoredPosition = SavedMinimapPosition;
+            }
+            else
+            {
+                rect.anchorMin = new Vector2(1f, 1f); // Top-right corner
+                rect.anchorMax = new Vector2(1f, 1f);
+                rect.pivot = new Vector2(1f, 1f);     // Still top-right aligned
 
-            rect.anchorMin = new Vector2(1f, 1f); // Top-right corner
-            rect.anchorMax = new Vector2(1f, 1f);
-            rect.pivot = new Vector2(1f, 1f);     // Still top-right aligned
+                var xOffset = -Screen.width * 0.05f;
+                var yOffset = -Screen.height * 0.12f;
 
-            var xOffset = -Screen.width * 0.05f;
-            var yOffset = -Screen.height * 0.12f;
-
-            rect.anchoredPosition = new Vector2(xOffset, yOffset);
+                rect.anchoredPosition = new Vector2(xOffset, yOffset);
+            }
         }
     }
     
@@ -551,7 +590,7 @@ public class MiniMapPlugin : BaseUnityPlugin
                 var isTarget = GameData.PlayerControl.CurrentTarget != null &&
                                GameData.PlayerControl.CurrentTarget == character;
 
-                var marker = _npcMarkers.FirstOrDefault(m => !m.activeSelf && m.name == (isTarget ? "NPCMarkerSolid" : "NPCMarker"));
+                var marker = _npcMarkers.FirstOrDefault(m => m != null && !m.activeSelf && m.name == (isTarget ? "NPCMarkerSolid" : "NPCMarker"));
 
                 if (marker == null)
                 {
@@ -739,46 +778,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         
         _mapZoneBgTexture.LoadImage(data);
     }
-    
-    private void LoadZoomTexture()
-    {
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-
-        // Zoom In
-        var assetPath = Path.Combine(_assetDirectory, "zoom_in.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("zoom_in.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        var data = File.ReadAllBytes(assetPath);
-        
-        _mapZoomInTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-        
-        _mapZoomInTexture.LoadImage(data);
-        
-        // Zoom Out
-        assetPath = Path.Combine(_assetDirectory, "zoom_out.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("zoom_out.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        data = File.ReadAllBytes(assetPath);
-        
-        _mapZoomOutTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-        
-        _mapZoomOutTexture.LoadImage(data);
-    }
 
     private void LoadArrowTexture()
     {
@@ -837,6 +836,7 @@ public class ResizeUIBottomLeft : MonoBehaviour, IPointerDownHandler, IPointerUp
         var delta = eventData.position - _startMouse;
         var newSize = Mathf.Clamp(_startSize.x - delta.x, minSize, maxSize);
         target.sizeDelta = new Vector2(newSize, newSize); // square resize
+        MiniMapPlugin.SavedMinimapSize = new Vector2(newSize, newSize);
     }
 }
 
@@ -866,5 +866,6 @@ public class ResizeUIBottomRight : MonoBehaviour, IPointerDownHandler, IPointerU
         var delta = eventData.position - _startMouse;
         var newSize = Mathf.Clamp(_startSize.x + delta.x, minSize, maxSize);
         target.sizeDelta = new Vector2(newSize, newSize); // square resize
+        MiniMapPlugin.SavedMinimapSize = new Vector2(newSize, newSize);
     }
 }
