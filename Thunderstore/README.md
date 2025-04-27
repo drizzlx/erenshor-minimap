@@ -1,6 +1,6 @@
 # Mini Map
 
-Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes.
+Adds a mini-map to the game that tracks vendors, mobs, sims, mining nodes, dungeon entrances, etc.
 
 ## Installation
 - Install [BepInEx Mod Pack](https://thunderstore.io/package/bbepis/BepInExPack/)
@@ -36,8 +36,16 @@ Adds a mini-map to the game that tracks vendors, mobs, players, and mining nodes
   </tr>
 </table>
 
-
 ## Change Log
+2.0.0
+- Display Zone Entrances on map, such as dungeons (looks like a portal).
+- Resizable UI (click to drag in top left, bottom left, or bottom right corner).
+- Draggable UI (click icon in the top right corner).
+- Mouse scroll to zoom in and out (hover the Mini Map and scroll).
+- Dead party member sims will continue to appear on the map.
+- Fixed console errors related to height being 0.
+- Complete UI overhaul.
+
 1.2.0
 - Change to a more visible player arrow image.
 - Fixed map orientation bug, North should always be upwards.

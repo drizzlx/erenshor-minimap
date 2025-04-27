@@ -44,15 +44,14 @@ public class MiniMapPlugin : BaseUnityPlugin
     private TextMeshProUGUI _zoneLabel;
     private TextMeshProUGUI _coordsLabel;
     private readonly float _minimapUISize = 250f;
-    private RectTransform _zoneLabelRect;
-    private RectTransform _zoneLabelBGRect;
     private Transform _miniMapPanelGoTransform;
     private static Vector2 _savedMinimapPosition;
     public static Vector2 SavedMinimapSize;
     
     // Zone Identifier
     private Zoneline[] _allZonelines;
-    private List<GameObject> _zonelineMarkers = new();
+    private List<GameObject> _zoneLineMarkers = new();
+    private bool _canLoadZoneLines;
     
     private void Awake()
     {
@@ -118,8 +117,6 @@ public class MiniMapPlugin : BaseUnityPlugin
             Logger.LogError($"Error during minimap cleanup: {ex}");
         }
     }
-
-    private bool _canLoadZoneLines;
     
     private void Update()
     {
@@ -129,16 +126,15 @@ public class MiniMapPlugin : BaseUnityPlugin
         if (GameData.Zoning)
         {
             _canLoadZoneLines = true;
-            _allZonelines = null;
             
             return;
         }
 
         if (_canLoadZoneLines)
         {
-            _allZonelines = FindObjectsOfType<Zoneline>();
-            _zonelineMarkers.RemoveAll(m => m == null);
-            _canLoadZoneLines = false;
+            _allZonelines = null;
+            
+            StartCoroutine(LateLoadZoneLines());
         }
 
         if (_minimapCamera == null)
@@ -200,7 +196,33 @@ public class MiniMapPlugin : BaseUnityPlugin
         UpdateMinimapCamera();
         UpdatePlayerArrowOnMinimap();
         UpdateNpcMarkers();
-        UpdateZonelineMarkers();
+        UpdateZoneLineMarkers();
+    }
+    
+    private IEnumerator LateLoadZoneLines()
+    {
+        // Due to a delay on zone line objects loading, we need to keep trying.
+        const int maxTries = 10;
+        
+        int tries = 0;
+
+        while (tries < maxTries)
+        {
+            _allZonelines = FindObjectsOfType<Zoneline>();
+
+            if (_allZonelines != null && _allZonelines.Length > 0)
+                break;
+
+            tries++;
+
+            // Wait 60 frames before next attempt
+            for (int i = 0; i < 60; i++)
+                yield return null;
+        }
+
+        _zoneLineMarkers.RemoveAll(m => m == null);
+        
+        _canLoadZoneLines = false;
     }
     
     private void CreateMinimapCamera()
@@ -384,6 +406,24 @@ public class MiniMapPlugin : BaseUnityPlugin
         _coordsLabel.rectTransform.sizeDelta = new Vector2(0, 0); // Let text define size
         
         // === Resize Handle (bottom-left corner) ===
+        var resizeHandleTl = new GameObject("MinimapResizeHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        resizeHandleTl.transform.SetParent(panelGo.transform, false);
+
+        var resizeRectTl = resizeHandleTl.GetComponent<RectTransform>();
+        resizeRectTl.sizeDelta = new Vector2(32, 32); // size of corner grab
+        resizeRectTl.anchorMin = new Vector2(0f, 1f); // bottom-right corner
+        resizeRectTl.anchorMax = new Vector2(0f, 1f);
+        resizeRectTl.pivot = new Vector2(0f, 1f);
+        resizeRectTl.anchoredPosition = Vector2.zero; // slight padding from edges
+
+        var resizeImageTl = resizeRectTl.GetComponent<Image>();
+        resizeImageTl.color = new Color(0.75f, 0.75f, 0.75f, 0f); // subtle semi-transparent gray
+        resizeImageTl.raycastTarget = true;
+
+        // Add resizer logic component
+        resizeHandleTl.AddComponent<ResizeUIBottomLeft>().target = panelGo.GetComponent<RectTransform>();
+        
+        // === Resize Handle (bottom-left corner) ===
         var resizeHandleBl = new GameObject("MinimapResizeHandle", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         resizeHandleBl.transform.SetParent(panelGo.transform, false);
 
@@ -489,15 +529,15 @@ public class MiniMapPlugin : BaseUnityPlugin
         dragHandle.transform.SetParent(panelGo.transform, false);
 
         var handleRect = dragHandle.GetComponent<RectTransform>();
-        handleRect.sizeDelta = new Vector2(16, 16);
+        handleRect.sizeDelta = new Vector2(14, 14);
         handleRect.anchorMin = new Vector2(1f, 1f);
         handleRect.anchorMax = new Vector2(1f, 1f);
         handleRect.pivot = new Vector2(0.5f, 0.5f);
-        handleRect.anchoredPosition = new Vector2(0f, 0f); // Slight offset inward
+        handleRect.anchoredPosition = new Vector2(0f, 0f);
 
         var handleImage = dragHandle.GetComponent<Image>();
         handleImage.sprite = Sprite.Create(
-            MakeDiamondGradientTexture(new Color(0.5f, 0.5f, 0.5f, 0.75f)),
+            MakeDiamondGradientTexture(new Color(0.0667f, 0.5333f, 0.7529f, 0.9f)),
             new Rect(0, 0, 2, 2),
             new Vector2(0.5f, 0.5f)
         );
@@ -689,13 +729,13 @@ public class MiniMapPlugin : BaseUnityPlugin
         }
     }
 
-    private void UpdateZonelineMarkers()
+    private void UpdateZoneLineMarkers()
     {
-        if (_zonelineMarkers == null || _minimapCamera == null || _allZonelines == null)
+        if (_zoneLineMarkers == null || _minimapCamera == null || _allZonelines == null)
             return;
 
         // Reuse markers from pool
-        foreach (var marker in _zonelineMarkers)
+        foreach (var marker in _zoneLineMarkers)
         {
             marker.SetActive(false);
         }
@@ -712,13 +752,13 @@ public class MiniMapPlugin : BaseUnityPlugin
             if (viewportPos.z <= 0f || viewportPos.x < 0.05f || viewportPos.x > 0.95f || viewportPos.y < 0.05f || viewportPos.y > 0.95f)
                 continue;
 
-            GameObject marker = _zonelineMarkers.FirstOrDefault(m => m != null && !m.activeSelf);
+            GameObject marker = _zoneLineMarkers.FirstOrDefault(m => m != null && !m.activeSelf);
 
             if (marker == null)
             {
-                marker = CreateZonelineMarker();
+                marker = CreateZoneLineMarker();
                 marker.transform.SetParent(_npcMarkerContainer, false);
-                _zonelineMarkers.Add(marker); // error here
+                _zoneLineMarkers.Add(marker);
             }
 
             marker.SetActive(true);
@@ -732,7 +772,7 @@ public class MiniMapPlugin : BaseUnityPlugin
             var dotX = (viewportPos.x - 0.5f) * panelWidth;
             var dotY = (viewportPos.y - 0.5f) * panelHeight;
 
-            markerRect.anchoredPosition = new Vector2(dotX, dotY);
+            markerRect.anchoredPosition = new Vector2(Mathf.Round(dotX), Mathf.Round(dotY));
         }
     }
 
@@ -791,7 +831,7 @@ public class MiniMapPlugin : BaseUnityPlugin
         return marker;
     }
     
-    private GameObject CreateZonelineMarker()
+    private GameObject CreateZoneLineMarker()
     {
         var marker = new GameObject("ZonelineMarker", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
 
@@ -815,155 +855,9 @@ public class MiniMapPlugin : BaseUnityPlugin
             Logger.LogError("_mapZoneLineTexture is null, cannot assign sprite to zoneline marker.");
         }
     
-        image.color = new Color(1f, 1f, 1f, 0.8f); // Full color but slightly transparent for effect
+        image.color = new Color(1f, 1f, 1f, 0.7f); // Full color but slightly transparent for effect
 
         return marker;
-    }
-    
-    private Texture2D MakeDiamondGradientTexture(Color topColor)
-    {
-        var size = 32;
-        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.wrapMode = TextureWrapMode.Clamp;
-        
-        var highlight = new Color(0.75f, 0.85f, 0.95f, 1f); // cool soft white
-
-        for (var y = 0; y < size; y++)
-        {
-            var rawT = Mathf.Pow((size - 1 - y) / (float)(size - 1), 5.5f);
-            var t = Mathf.Clamp(rawT, 0.7f, 1f);
-            var c = Color.Lerp(highlight, topColor, t); // ← dark to light
-
-            for (var x = 0; x < size; x++)
-            {
-                tex.SetPixel(x, y, c);
-            }
-        }
-
-        tex.Apply();
-        return tex;
-    }
-    
-    private void LoadMapBorderTexture()
-    {
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-        
-        var assetPath = Path.Combine(_assetDirectory, "map_border.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("map_border.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        var data = File.ReadAllBytes(assetPath);
-        
-        _mapBorderTexture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-        
-        _mapBorderTexture.LoadImage(data);
-    }
-    
-    private void LoadZoneBgTexture()
-    {
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-        
-        var assetPath = Path.Combine(_assetDirectory, "zone_bg.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("zone_bg.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        var data = File.ReadAllBytes(assetPath);
-        
-        _mapZoneBgTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-        
-        _mapZoneBgTexture.LoadImage(data);
-    }
-    
-    private void LoadZoneLineTexture()
-    {
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-        
-        var assetPath = Path.Combine(_assetDirectory, "zone_line.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("zone_line.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        var data = File.ReadAllBytes(assetPath);
-        
-        _mapZoneLineTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-        
-        _mapZoneLineTexture.LoadImage(data);
-    }
-    
-    private void LoadCoordsBgTexture()
-    {
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-        
-        var assetPath = Path.Combine(_assetDirectory, "coords_bg.png");
-
-        if (!File.Exists(assetPath))
-        {
-            Logger.LogError("coords_bg.png texture not found " + assetPath);
-            
-            return;
-        }
-        
-        var data = File.ReadAllBytes(assetPath);
-        
-        _mapCoordsBgTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-        
-        _mapCoordsBgTexture.LoadImage(data);
-    }
-
-    private void LoadArrowTexture()
-    {
-
-        if (!Directory.Exists(_assetDirectory))
-        {
-            return;
-        }
-
-        var assetPath = Path.Combine(_assetDirectory, "arrow.png");
-
-        if (File.Exists(assetPath))
-        {
-            if (!LoadImageTextures(assetPath))
-                Logger.LogError("Failed to load arrow texture from " + assetPath);
-
-            return;
-        }
-        
-        Logger.LogError("arrow.png texture not found " + assetPath);
-    }
-
-    private bool LoadImageTextures(string assetPath)
-    {
-        var data = File.ReadAllBytes(assetPath);
-        
-        _arrowTexture = new Texture2D(4, 4, TextureFormat.RGBA32, false);
-
-        return _arrowTexture.LoadImage(data);
     }
     
     private bool IsMouseOverMinimap()
@@ -985,7 +879,81 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         return false;
     }
+    
+    private Texture2D MakeDiamondGradientTexture(Color topColor)
+    {
+        var size = 32;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.wrapMode = TextureWrapMode.Clamp;
+        
+        var highlight = new Color(0.5f, 0.5f, 0.5f, 1f);
 
+        for (var y = 0; y < size; y++)
+        {
+            var rawT = Mathf.Pow((size - 1 - y) / (float)(size - 1), 5.5f);
+            var t = Mathf.Clamp(rawT, 0.7f, 1f);
+            var c = Color.Lerp(highlight, topColor, t); // ← dark to light
+
+            for (var x = 0; x < size; x++)
+            {
+                tex.SetPixel(x, y, c);
+            }
+        }
+
+        tex.Apply();
+        return tex;
+    }
+    
+    private void LoadMapBorderTexture()
+    {
+        _mapBorderTexture = LoadImageTexture(Path.Combine(_assetDirectory, "map_border.png"));
+    }
+    
+    private void LoadZoneBgTexture()
+    {
+        _mapZoneBgTexture = LoadImageTexture(Path.Combine(_assetDirectory, "zone_bg.png"));
+    }
+    
+    private void LoadZoneLineTexture()
+    {
+        _mapZoneLineTexture = LoadImageTexture(Path.Combine(_assetDirectory, "zone_line.png"));
+    }
+    
+    private void LoadCoordsBgTexture()
+    {
+        _mapCoordsBgTexture = LoadImageTexture(Path.Combine(_assetDirectory, "coords_bg.png"));
+    }
+
+    private void LoadArrowTexture()
+    {
+        _arrowTexture = LoadImageTexture(Path.Combine(_assetDirectory, "arrow.png"));
+    }
+
+    private Texture2D LoadImageTexture(string assetPath)
+    {
+        if (!Directory.Exists(_assetDirectory))
+        {
+            Logger.LogError("Plugin directory not found " + _assetDirectory);
+
+            return null;
+        }
+        
+        if (!File.Exists(assetPath))
+        {
+            Logger.LogError("Texture not found " + assetPath);
+
+            return null;
+        }
+        
+        var data = File.ReadAllBytes(assetPath);
+        
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+
+        if (!texture.LoadImage(data))
+            Logger.LogError("Failed to load texture from " + assetPath);
+
+        return texture;
+    }
 }
 
 public class ResizeUIBottomLeft : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IDragHandler
