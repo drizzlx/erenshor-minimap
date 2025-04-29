@@ -29,7 +29,6 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     // Map textures
     private Texture2D _mapZoneBgTexture;
-    private Texture2D _mapBorderTexture;
     private Texture2D _mapCoordsBgTexture;
     private Texture2D _mapZoneLineTexture;
     
@@ -68,7 +67,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         }
 
         LoadCoordsBgTexture();
-        LoadMapBorderTexture();
         LoadZoneBgTexture();
         LoadArrowTexture();
         LoadZoneLineTexture();
@@ -229,6 +227,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         _minimapCamObj = new GameObject("MinimapCamera");
         _minimapCamera = _minimapCamObj.AddComponent<Camera>();
 
+        _minimapCamera.cullingMask = 1 << LayerMask.NameToLayer("Default");
+        
         _minimapCamera.orthographic = true;
         _minimapCamera.orthographicSize = _zoomLevel;
         _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -626,7 +626,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         }
 
         var playerPos = GameData.PlayerControl.transform.position;
-        var colliders = Physics.OverlapSphere(playerPos, _zoomLevel);
+        var npcLayerMask = 1 << LayerMask.NameToLayer("NPC");
+        var colliders = Physics.OverlapSphere(playerPos, _zoomLevel, npcLayerMask);
         
         if (colliders == null || colliders.Length == 0)
             return;
@@ -918,11 +919,6 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         tex.Apply();
         return tex;
-    }
-    
-    private void LoadMapBorderTexture()
-    {
-        _mapBorderTexture = LoadImageTexture(Path.Combine(_assetDirectory, "map_border.png"));
     }
     
     private void LoadZoneBgTexture()
