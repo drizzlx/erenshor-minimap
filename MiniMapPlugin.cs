@@ -610,25 +610,26 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         rectTransform.localRotation = Quaternion.Euler(0, 0, -angle);
     }
-    
+
     private void UpdateNpcMarkers()
     {
-        if (_npcMarkerContainer == null 
-            || _minimapCamera == null 
-            || GameData.PlayerControl == null 
+        if (_npcMarkerContainer == null
+            || _minimapCamera == null
+            || GameData.PlayerControl == null
+            || GameData.PlayerControl.transform == null
             || _minimapUIRoot == null)
             return;
 
-        // Hide all existing markers (reuse from pool)
         foreach (var marker in _npcMarkers)
         {
-            marker?.SetActive(false);
+            if (marker != null)
+                marker.SetActive(false);
         }
 
         var playerPos = GameData.PlayerControl.transform.position;
         var npcLayerMask = 1 << LayerMask.NameToLayer("NPC");
         var colliders = Physics.OverlapSphere(playerPos, _zoomLevel, npcLayerMask);
-        
+
         if (colliders == null || colliders.Length == 0)
             return;
 
@@ -636,32 +637,27 @@ public class MiniMapPlugin : BaseUnityPlugin
         {
             var character = collider?.GetComponent<Character>();
 
-            if (character == null 
+            if (character == null
                 || character.MyNPC == null
-                || (!character.Alive && !character.MiningNode && !character.MyNPC.SimPlayer) 
+                || (!character.Alive && !character.MiningNode && !character.MyNPC.SimPlayer)
                 || (!character.isNPC && !character.MiningNode))
                 continue;
 
-            // Display dead party members
             if (!character.Alive && character.MyNPC.SimPlayer && !character.MyNPC.InGroup)
-            {
                 continue;
-            }
-            
+
             if (character.transform == null)
                 continue;
 
             var worldPos = character.transform.position;
             var viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
 
-            // Padding to prevent edge clutter
             var padding = 0.05f;
             if (viewportPos.z <= 0f ||
                 viewportPos.x < padding || viewportPos.x > 1f - padding ||
                 viewportPos.y < padding || viewportPos.y > 1f - padding)
                 continue;
 
-            // Determine color
             Color color;
             if (character.MyNPC.SimPlayer)
             {
@@ -677,15 +673,15 @@ public class MiniMapPlugin : BaseUnityPlugin
             {
                 color = new Color(0.65f, 0.3f, 1f, 0.95f);
             }
-            else if (GameData.PlayerControl.Myself == null 
-                     || character.AggressiveTowards == null 
+            else if (GameData.PlayerControl.Myself == null
+                     || character.AggressiveTowards == null
                      || !character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
             {
                 color = new Color(0.6f, 0.6f, 0.6f, 0.75f);
             }
             else
             {
-                color = new Color(1f, 0f, 0f, 0.75f); // Aggressive enemy
+                color = new Color(1f, 0f, 0f, 0.75f);
             }
 
             if (!character.MiningNode || (character.MiningNode && character.enabled))
@@ -698,6 +694,9 @@ public class MiniMapPlugin : BaseUnityPlugin
                 if (marker == null)
                 {
                     marker = isTarget ? CreateSolidMarker(color) : CreateMarker(color);
+                    if (marker == null)
+                        continue;
+
                     marker.transform.SetParent(_npcMarkerContainer, false);
                     _npcMarkers.Add(marker);
                 }
@@ -708,12 +707,13 @@ public class MiniMapPlugin : BaseUnityPlugin
                         if (img != null)
                             img.color = color;
                     }
-                    
-                    marker?.SetActive(true);
+
+                    marker.SetActive(true);
                 }
 
                 var markerRect = marker.GetComponent<RectTransform>();
-                var panelRect = _minimapUIRoot?.GetComponent<RectTransform>();
+                var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+
                 if (markerRect == null || panelRect == null)
                     continue;
 
@@ -730,24 +730,23 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private void UpdateZoneLineMarkers()
     {
-        if (_zoneLineMarkers == null 
-            || _minimapCamera == null 
+        if (_zoneLineMarkers == null
+            || _minimapCamera == null
             || _allZonelines == null
             || _npcMarkerContainer == null
             || _minimapUIRoot == null)
             return;
 
-        // Reuse markers from pool
         foreach (var marker in _zoneLineMarkers)
         {
-            marker?.SetActive(false);
+            if (marker != null)
+                marker.SetActive(false);
         }
-        
-        var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
 
+        var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
         if (panelRect == null)
             return;
-        
+
         var panelWidth = panelRect.rect.width;
         var panelHeight = panelRect.rect.height;
 
@@ -759,8 +758,9 @@ public class MiniMapPlugin : BaseUnityPlugin
             var worldPos = zone.transform.position;
             var viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
 
-            // Only render if visible inside map
-            if (viewportPos.z <= 0f || viewportPos.x < 0.05f || viewportPos.x > 0.95f || viewportPos.y < 0.05f || viewportPos.y > 0.95f)
+            if (viewportPos.z <= 0f ||
+                viewportPos.x < 0.05f || viewportPos.x > 0.95f ||
+                viewportPos.y < 0.05f || viewportPos.y > 0.95f)
                 continue;
 
             GameObject marker = _zoneLineMarkers.FirstOrDefault(m => m != null && !m.activeSelf);
@@ -782,7 +782,6 @@ public class MiniMapPlugin : BaseUnityPlugin
             marker.SetActive(true);
 
             var markerRect = marker.GetComponent<RectTransform>();
-            
             if (markerRect == null)
                 continue;
 
