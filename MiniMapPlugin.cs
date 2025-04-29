@@ -731,18 +731,22 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private void UpdateZoneLineMarkers()
     {
-        if (_zoneLineMarkers == null || _minimapCamera == null || _allZonelines == null)
+        if (_zoneLineMarkers == null || _minimapCamera == null || _allZonelines == null || _npcMarkerContainer == null || _minimapUIRoot == null)
+        {
+            Logger.LogWarning("UpdateZoneLineMarkers aborted: one or more critical components are null."); //Log and Continue
             return;
+        }
 
         // Reuse markers from pool
         foreach (var marker in _zoneLineMarkers)
         {
-            marker.SetActive(false);
+            if (marker != null)
+                marker.SetActive(false);
         }
 
         foreach (var zone in _allZonelines)
         {
-            if (zone == null)
+            if (zone == null || zone.transform == null)
                 continue;
 
             var worldPos = zone.transform.position;
@@ -757,6 +761,11 @@ public class MiniMapPlugin : BaseUnityPlugin
             if (marker == null)
             {
                 marker = CreateZoneLineMarker();
+                if (marker == null)
+                {
+                    Logger.LogError("Failed to create zone line marker."); //Log and Continue 
+                    continue;
+                }
                 marker.transform.SetParent(_npcMarkerContainer, false);
                 _zoneLineMarkers.Add(marker);
             }
@@ -765,6 +774,11 @@ public class MiniMapPlugin : BaseUnityPlugin
 
             var markerRect = marker.GetComponent<RectTransform>();
             var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+            if (markerRect == null || panelRect == null)
+            { 
+                Logger.LogWarning("MarkerRect or PanelRect is null"); //Log and Continue 
+                continue
+            }
 
             var panelWidth = panelRect.rect.width;
             var panelHeight = panelRect.rect.height;
