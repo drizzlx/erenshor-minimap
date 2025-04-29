@@ -8,7 +8,6 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-using Object = UnityEngine.Object;
 
 namespace MiniMap;
 
@@ -30,7 +29,6 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     // Map textures
     private Texture2D _mapZoneBgTexture;
-    private Texture2D _mapBorderTexture;
     private Texture2D _mapCoordsBgTexture;
     private Texture2D _mapZoneLineTexture;
     
@@ -69,7 +67,6 @@ public class MiniMapPlugin : BaseUnityPlugin
         }
 
         LoadCoordsBgTexture();
-        LoadMapBorderTexture();
         LoadZoneBgTexture();
         LoadArrowTexture();
         LoadZoneLineTexture();
@@ -230,6 +227,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         _minimapCamObj = new GameObject("MinimapCamera");
         _minimapCamera = _minimapCamObj.AddComponent<Camera>();
 
+        _minimapCamera.cullingMask = 1 << LayerMask.NameToLayer("Default");
+        
         _minimapCamera.orthographic = true;
         _minimapCamera.orthographicSize = _zoomLevel;
         _minimapCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -614,45 +613,43 @@ public class MiniMapPlugin : BaseUnityPlugin
     
     private void UpdateNpcMarkers()
     {
-        if (_npcMarkerContainer == null || _minimapCamera == null || GameData.PlayerControl == null)
+        if (_npcMarkerContainer == null 
+            || _minimapCamera == null 
+            || GameData.PlayerControl == null 
+            || _minimapUIRoot == null)
             return;
-
-        if (_minimapUIRoot == null)
-        {
-            Logger.LogError("_minimapUIRoot is null");
-            return;
-        }
 
         // Hide all existing markers (reuse from pool)
         foreach (var marker in _npcMarkers)
         {
-            if (marker != null)
-                marker.SetActive(false);
+            marker?.SetActive(false);
         }
 
         var playerPos = GameData.PlayerControl.transform.position;
-        var colliders = Physics.OverlapSphere(playerPos, _zoomLevel);
+        var npcLayerMask = 1 << LayerMask.NameToLayer("NPC");
+        var colliders = Physics.OverlapSphere(playerPos, _zoomLevel, npcLayerMask);
+        
+        if (colliders == null || colliders.Length == 0)
+            return;
 
         foreach (var collider in colliders)
         {
             var character = collider?.GetComponent<Character>();
-            
-            if (character == null)
-                continue;
 
-            if ((!character.Alive && !character.MiningNode && !character.MyNPC.SimPlayer) || (!character.isNPC && !character.MiningNode))
+            if (character == null 
+                || character.MyNPC == null
+                || (!character.Alive && !character.MiningNode && !character.MyNPC.SimPlayer) 
+                || (!character.isNPC && !character.MiningNode))
                 continue;
-
-            if (character.MyNPC == null)
-            {
-                continue;
-            }
 
             // Display dead party members
             if (!character.Alive && character.MyNPC.SimPlayer && !character.MyNPC.InGroup)
             {
                 continue;
             }
+            
+            if (character.transform == null)
+                continue;
 
             var worldPos = character.transform.position;
             var viewportPos = _minimapCamera.WorldToViewportPoint(worldPos);
@@ -680,8 +677,9 @@ public class MiniMapPlugin : BaseUnityPlugin
             {
                 color = new Color(0.65f, 0.3f, 1f, 0.95f);
             }
-            else if (GameData.PlayerControl.Myself == null || character.AggressiveTowards == null ||
-                     !character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
+            else if (GameData.PlayerControl.Myself == null 
+                     || character.AggressiveTowards == null 
+                     || !character.AggressiveTowards.Contains(GameData.PlayerControl.Myself.MyFaction))
             {
                 color = new Color(0.6f, 0.6f, 0.6f, 0.75f);
             }
@@ -710,11 +708,12 @@ public class MiniMapPlugin : BaseUnityPlugin
                         if (img != null)
                             img.color = color;
                     }
-                    marker.SetActive(true);
+                    
+                    marker?.SetActive(true);
                 }
 
                 var markerRect = marker.GetComponent<RectTransform>();
-                var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+                var panelRect = _minimapUIRoot?.GetComponent<RectTransform>();
                 if (markerRect == null || panelRect == null)
                     continue;
 
@@ -731,18 +730,30 @@ public class MiniMapPlugin : BaseUnityPlugin
 
     private void UpdateZoneLineMarkers()
     {
-        if (_zoneLineMarkers == null || _minimapCamera == null || _allZonelines == null)
+        if (_zoneLineMarkers == null 
+            || _minimapCamera == null 
+            || _allZonelines == null
+            || _npcMarkerContainer == null
+            || _minimapUIRoot == null)
             return;
 
         // Reuse markers from pool
         foreach (var marker in _zoneLineMarkers)
         {
-            marker.SetActive(false);
+            marker?.SetActive(false);
         }
+        
+        var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
+
+        if (panelRect == null)
+            return;
+        
+        var panelWidth = panelRect.rect.width;
+        var panelHeight = panelRect.rect.height;
 
         foreach (var zone in _allZonelines)
         {
-            if (zone == null)
+            if (zone == null || zone.transform == null)
                 continue;
 
             var worldPos = zone.transform.position;
@@ -757,17 +768,23 @@ public class MiniMapPlugin : BaseUnityPlugin
             if (marker == null)
             {
                 marker = CreateZoneLineMarker();
-                marker.transform.SetParent(_npcMarkerContainer, false);
-                _zoneLineMarkers.Add(marker);
+
+                if (marker != null)
+                {
+                    marker.transform.SetParent(_npcMarkerContainer, false);
+                    _zoneLineMarkers.Add(marker);
+                }
             }
+
+            if (marker == null)
+                continue;
 
             marker.SetActive(true);
 
             var markerRect = marker.GetComponent<RectTransform>();
-            var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
-
-            var panelWidth = panelRect.rect.width;
-            var panelHeight = panelRect.rect.height;
+            
+            if (markerRect == null)
+                continue;
 
             var dotX = (viewportPos.x - 0.5f) * panelWidth;
             var dotY = (viewportPos.y - 0.5f) * panelHeight;
@@ -902,11 +919,6 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         tex.Apply();
         return tex;
-    }
-    
-    private void LoadMapBorderTexture()
-    {
-        _mapBorderTexture = LoadImageTexture(Path.Combine(_assetDirectory, "map_border.png"));
     }
     
     private void LoadZoneBgTexture()
