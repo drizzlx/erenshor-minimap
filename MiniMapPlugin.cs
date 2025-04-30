@@ -50,7 +50,13 @@ public class MiniMapPlugin : BaseUnityPlugin
     private Zoneline[] _allZonelines;
     private List<GameObject> _zoneLineMarkers = new();
     private bool _canLoadZoneLines;
-    
+
+    //Throttling Updates
+    private float _npcUpdateTimer = 0f;
+    private float _zoneUpdateTimer = 0f;
+    private const float NpcUpdateInterval = 0.25f;   // update every 0.25s
+    private const float ZoneUpdateInterval = 0.5f;   // update every 0.5s
+
     private void Awake()
     {
         var dllPath = Info.Location;
@@ -190,10 +196,26 @@ public class MiniMapPlugin : BaseUnityPlugin
             }
         }
 
-        UpdateMinimapCamera();
+        if (GameData.PlayerControl == null || GameData.InCharSelect)
+            return;
+
+        _npcUpdateTimer += Time.deltaTime;
+        _zoneUpdateTimer += Time.deltaTime;
+
+        if (_npcUpdateTimer >= NpcUpdateInterval) //apply throttling to npc updates
+        {
+            _npcUpdateTimer = 0f;
+            UpdateNpcMarkers();
+        }
+
+        if (_zoneUpdateTimer >= ZoneUpdateInterval) //apply throttling to zone line updates
+        {
+            _zoneUpdateTimer = 0f;
+            UpdateZoneLineMarkers();
+        }
+
         UpdatePlayerArrowOnMinimap();
-        UpdateNpcMarkers();
-        UpdateZoneLineMarkers();
+        UpdateMinimapCamera();
     }
     
     private IEnumerator LateLoadZoneLines()
