@@ -486,7 +486,19 @@ public class MiniMapPlugin : BaseUnityPlugin
         containerRect.sizeDelta = Vector2.zero;
 
         _npcMarkerContainer = containerRect;
-        
+
+        // === Pre-populate pool of zone line markers ===
+        for (int i = 0; i < 5; i++) // adjust count based on expected density
+        {
+            var marker = CreateZoneLineMarker();
+            if (marker != null)
+            {
+                marker.transform.SetParent(_npcMarkerContainer, false);
+                marker.SetActive(false);
+                _zoneLineMarkers.Add(marker);
+            }
+        }
+
         coordsBgGo.transform.SetAsLastSibling();
 
         // === Zone Label (child of BG)
