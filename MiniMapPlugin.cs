@@ -734,8 +734,10 @@ public class MiniMapPlugin : BaseUnityPlugin
 
                 var dotX = (viewportPos.x - 0.5f) * panelWidth;
                 var dotY = (viewportPos.y - 0.5f) * panelHeight;
+                var newPos = new Vector2(dotX, dotY);
 
-                markerRect.anchoredPosition = new Vector2(dotX, dotY);
+                if (markerRect.anchoredPosition != newPos)
+                    markerRect.anchoredPosition = newPos;
             }
         }
     }
@@ -799,8 +801,10 @@ public class MiniMapPlugin : BaseUnityPlugin
 
             var dotX = (viewportPos.x - 0.5f) * panelWidth;
             var dotY = (viewportPos.y - 0.5f) * panelHeight;
+            var newPos = new Vector2(Mathf.Round(dotX), Mathf.Round(dotY));
 
-            markerRect.anchoredPosition = new Vector2(Mathf.Round(dotX), Mathf.Round(dotY));
+            if (markerRect.anchoredPosition != newPos)
+                markerRect.anchoredPosition = newPos;
         }
     }
 
