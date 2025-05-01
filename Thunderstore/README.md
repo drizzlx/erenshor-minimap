@@ -37,6 +37,8 @@ Adds a mini-map to the game that tracks vendors, mobs, sims, mining nodes, dunge
 </table>
 
 ## Change Log
+2.0.2
+- Fix console errors after changing scenes or characters.
 2.0.1
 - Improved performance, especially in large towns with lots of sims.
 - Fix NULL errors spamming the console.

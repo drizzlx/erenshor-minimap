@@ -217,7 +217,7 @@ public class MiniMapPlugin : BaseUnityPlugin
                 yield return null;
         }
 
-        _zoneLineMarkers.RemoveAll(m => m == null);
+        _zoneLineMarkers.RemoveAll(m => m == null || m.Equals(null));
         
         _canLoadZoneLines = false;
     }
@@ -622,7 +622,8 @@ public class MiniMapPlugin : BaseUnityPlugin
         // Hide all existing markers (reuse from pool)
         foreach (var marker in _npcMarkers)
         {
-            marker?.SetActive(false);
+            if (marker != null)
+                marker.SetActive(false);
         }
 
         var playerPos = GameData.PlayerControl.transform.position;
@@ -634,7 +635,10 @@ public class MiniMapPlugin : BaseUnityPlugin
 
         foreach (var collider in colliders)
         {
-            var character = collider?.GetComponent<Character>();
+            if (collider == null)
+                continue;
+            
+            var character = collider.GetComponent<Character>();
 
             if (character == null 
                 || character.MyNPC == null
@@ -669,7 +673,10 @@ public class MiniMapPlugin : BaseUnityPlugin
                     ? new Color(0f, 1f, 0f, 0.75f)
                     : new Color(0f, 0.5f, 1f, 0.85f);
             }
-            else if (character.isVendor || _bankNpcs.Contains(character.MyNPC.NPCName) || _otherNpcs.Contains(character.MyNPC.NPCName))
+            else if (character.isVendor 
+                     || (!string.IsNullOrEmpty(character.MyNPC.NPCName) 
+                         && (_bankNpcs.Contains(character.MyNPC.NPCName) 
+                             || _otherNpcs.Contains(character.MyNPC.NPCName))))
             {
                 color = new Color(1f, 1f, 0f, 0.75f);
             }
@@ -697,6 +704,9 @@ public class MiniMapPlugin : BaseUnityPlugin
 
                 if (marker == null)
                 {
+                    if (_npcMarkerContainer == null)
+                        continue;
+                    
                     marker = isTarget ? CreateSolidMarker(color) : CreateMarker(color);
                     marker.transform.SetParent(_npcMarkerContainer, false);
                     _npcMarkers.Add(marker);
@@ -709,8 +719,11 @@ public class MiniMapPlugin : BaseUnityPlugin
                             img.color = color;
                     }
                     
-                    marker?.SetActive(true);
+                    marker.SetActive(true);
                 }
+
+                if (marker == null)
+                    continue;
 
                 var markerRect = marker.GetComponent<RectTransform>();
                 var panelRect = _minimapUIRoot?.GetComponent<RectTransform>();
@@ -737,10 +750,14 @@ public class MiniMapPlugin : BaseUnityPlugin
             || _minimapUIRoot == null)
             return;
 
-        // Reuse markers from pool
+        _zoneLineMarkers.RemoveAll(m => m == null || m.Equals(null)); // Clean up destroyed references
+
         foreach (var marker in _zoneLineMarkers)
         {
-            marker?.SetActive(false);
+            if (marker == null || marker.Equals(null))
+                continue;
+
+            marker.SetActive(false);
         }
         
         var panelRect = _minimapUIRoot.GetComponent<RectTransform>();
